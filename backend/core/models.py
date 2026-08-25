@@ -12,11 +12,14 @@ datos (clientes, recetas, inventario, eventos, etc.).
 """
 
 import math
+import uuid
+from datetime import timedelta
 from decimal import ROUND_CEILING, Decimal
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 
 class TiempoMenu(models.TextChoices):
@@ -626,3 +629,300 @@ class DetalleListaCarga(models.Model):
             f"{self.articulo} - requeridas {self.cantidad_requerida} / "
             f"a cargar {self.cantidad_a_cargar} (+10% rotura)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Módulo E: Staffing y Personal Eventual
+# ---------------------------------------------------------------------------
+class PersonalEventual(models.Model):
+    """Mesero, bartender, garrotero o capitán que se postula de forma
+    autónoma a vacantes de eventos desde la Bolsa de Trabajo (Módulo E)."""
+
+    class Rol(models.TextChoices):
+        MESERO = "MESERO", "Mesero"
+        BARTENDER = "BARTENDER", "Bartender"
+        GARROTERO = "GARROTERO", "Garrotero"
+        CAPITAN = "CAPITAN", "Capitán de Meseros"
+        OTRO = "OTRO", "Otro"
+
+    empresa = models.ForeignKey(
+        EmpresaBanquetera, on_delete=models.CASCADE, related_name="personal_eventual"
+    )
+    nombre = models.CharField(max_length=150)
+    telefono = models.CharField(max_length=20)
+    email = models.EmailField(blank=True)
+    rol_principal = models.CharField(max_length=15, choices=Rol.choices)
+    activo = models.BooleanField(
+        "¿Disponible para postularse a vacantes?", default=True
+    )
+
+    class Meta:
+        verbose_name = "Personal Eventual"
+        verbose_name_plural = "Personal Eventual"
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return f"{self.nombre} ({self.get_rol_principal_display()})"
+
+
+class VacanteEvento(models.Model):
+    """Una vacante de personal para un evento específico: cuántas personas
+    de un rol dado hacen falta y a qué tarifa por turno (Bolsa de Trabajo,
+    Módulo E). El personal eventual se postula de forma autónoma."""
+
+    evento = models.ForeignKey(Evento, on_delete=models.CASCADE, related_name="vacantes")
+    rol = models.CharField(max_length=15, choices=PersonalEventual.Rol.choices)
+    cantidad_requerida = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    tarifa_por_turno = models.DecimalField(max_digits=8, decimal_places=2)
+    notas = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name = "Vacante de Evento"
+        verbose_name_plural = "Vacantes de Evento"
+        ordering = ["evento__fecha"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["evento", "rol"], name="unique_rol_por_vacante_evento"
+            )
+        ]
+
+    @property
+    def cantidad_aceptada(self) -> int:
+        return self.postulaciones.filter(estado=Postulacion.Estado.ACEPTADO).count()
+
+    @property
+    def cubierta(self) -> bool:
+        return self.cantidad_aceptada >= self.cantidad_requerida
+
+    def __str__(self):
+        return f"{self.get_rol_display()} x{self.cantidad_requerida} - {self.evento.nombre_evento}"
+
+
+class Postulacion(models.Model):
+    """Postulación autónoma de un trabajador eventual a una vacante (Bolsa
+    de Trabajo, Módulo E). Al aceptarse, se crea su `CheckIn` para el día
+    del evento."""
+
+    class Estado(models.TextChoices):
+        POSTULADO = "POSTULADO", "Postulado"
+        ACEPTADO = "ACEPTADO", "Aceptado"
+        RECHAZADO = "RECHAZADO", "Rechazado"
+
+    vacante = models.ForeignKey(
+        VacanteEvento, on_delete=models.CASCADE, related_name="postulaciones"
+    )
+    personal = models.ForeignKey(
+        PersonalEventual, on_delete=models.CASCADE, related_name="postulaciones"
+    )
+    estado = models.CharField(max_length=12, choices=Estado.choices, default=Estado.POSTULADO)
+    postulado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Postulación"
+        verbose_name_plural = "Postulaciones"
+        ordering = ["-postulado_en"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["vacante", "personal"], name="unique_postulacion_por_vacante"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.personal.nombre} -> {self.vacante} ({self.get_estado_display()})"
+
+
+def _generar_codigo_checkin() -> str:
+    """Código corto único que hace las veces de contenido de un código QR
+    (Check-In del Módulo E) en esta implementación web: el Capitán de
+    Meseros lo confirma al llegar el trabajador, sin depender de hardware
+    biométrico ni de GPS real."""
+    return uuid.uuid4().hex[:8].upper()
+
+
+class CheckIn(models.Model):
+    """Registro de asistencia del personal eventual al evento (Módulo E:
+    Check-In Biométrico o Geolocalizado). En esta implementación web se usa
+    un código de verificación único por postulación en vez de biometría/GPS
+    real, que el Capitán de Meseros confirma al llegar el trabajador."""
+
+    postulacion = models.OneToOneField(
+        Postulacion, on_delete=models.CASCADE, related_name="check_in"
+    )
+    codigo_verificacion = models.CharField(
+        max_length=8, unique=True, default=_generar_codigo_checkin, editable=False
+    )
+    hora_checkin = models.DateTimeField(null=True, blank=True)
+    confirmado_por = models.CharField(
+        "Nombre de quien confirmó (ej. Capitán de Meseros)", max_length=150, blank=True
+    )
+
+    class Meta:
+        verbose_name = "Check-In de Personal"
+        verbose_name_plural = "Check-Ins de Personal"
+
+    @property
+    def asistio(self) -> bool:
+        return self.hora_checkin is not None
+
+    def confirmar(self, confirmado_por: str = ""):
+        self.hora_checkin = timezone.now()
+        if confirmado_por:
+            self.confirmado_por = confirmado_por
+        self.save(update_fields=["hora_checkin", "confirmado_por"])
+
+    def __str__(self):
+        estado = "presente" if self.asistio else "pendiente"
+        return f"Check-in {self.postulacion.personal.nombre} ({estado})"
+
+
+# ---------------------------------------------------------------------------
+# Módulo F: Finanzas — Cotizador por Volumen y Esquema de Cobro 50/30/20
+# ---------------------------------------------------------------------------
+class ConfiguracionCotizador(models.Model):
+    """Parámetros del Cotizador por Volumen (Módulo F) por empresa: el
+    precio por persona sube cuando bajan los invitados, para absorber entre
+    menos comensales los costos fijos de transporte y personal base."""
+
+    empresa = models.OneToOneField(
+        EmpresaBanquetera, on_delete=models.CASCADE, related_name="configuracion_cotizador"
+    )
+    costo_base_por_persona = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Costo variable de alimentos/servicio por invitado.",
+    )
+    costos_fijos_transporte_personal = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Costos fijos del evento (transporte, personal base) a repartir entre los invitados.",
+    )
+
+    class Meta:
+        verbose_name = "Configuración del Cotizador"
+        verbose_name_plural = "Configuración del Cotizador"
+
+    def cotizar(self, numero_invitados: int) -> dict:
+        """Precio por persona INVERSAMENTE proporcional al volumen: entre
+        menos invitados, más costos fijos le tocan a cada uno."""
+        if numero_invitados <= 0:
+            raise ValidationError("El número de invitados debe ser mayor a cero.")
+        costos_fijos_por_persona = self.costos_fijos_transporte_personal / Decimal(
+            numero_invitados
+        )
+        precio_por_persona = self.costo_base_por_persona + costos_fijos_por_persona
+        precio_total = precio_por_persona * numero_invitados
+        return {
+            "numero_invitados": numero_invitados,
+            "costo_base_por_persona": self.costo_base_por_persona,
+            "costos_fijos_por_persona": costos_fijos_por_persona.quantize(Decimal("0.01")),
+            "precio_por_persona": precio_por_persona.quantize(Decimal("0.01")),
+            "precio_total": precio_total.quantize(Decimal("0.01")),
+        }
+
+    def __str__(self):
+        return f"Cotizador de {self.empresa}"
+
+
+class EsquemaPagoEvento(models.Model):
+    """Esquema de Cobro Automatizado del Módulo F: reparte el monto total
+    del evento en 3 abonos (50/30/20) con sus fechas límite, según la
+    estructura tradicional de la industria de banquetes."""
+
+    PORCENTAJE_ANTICIPO = Decimal("0.50")
+    PORCENTAJE_INTERMEDIO = Decimal("0.30")
+    PORCENTAJE_LIQUIDACION = Decimal("0.20")
+    DIAS_LIQUIDACION_ANTES_DEL_EVENTO = 15
+
+    evento = models.OneToOneField(Evento, on_delete=models.CASCADE, related_name="esquema_pago")
+    monto_total = models.DecimalField(max_digits=12, decimal_places=2)
+    generado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Esquema de Pago de Evento"
+        verbose_name_plural = "Esquemas de Pago de Evento"
+
+    def generar_o_actualizar_abonos(self):
+        """(Re)crea los 3 abonos del esquema 50/30/20 con sus montos y
+        fechas límite:
+        - Anticipo (50%): al apartar la fecha / firmar contrato (hoy).
+        - Intermedio (30%): en la fecha de la prueba de menú (o, si no hay
+          prueba capturada aún, 30 días antes del evento).
+        - Liquidación (20%): obligatoria 15 días antes del evento.
+        """
+        hoy = timezone.localdate()
+
+        primera_prueba = self.evento.pruebas_menu.order_by("fecha_prueba").first()
+        fecha_intermedia = (
+            primera_prueba.fecha_prueba
+            if primera_prueba
+            else self.evento.fecha - timedelta(days=30)
+        )
+        fecha_liquidacion = self.evento.fecha - timedelta(
+            days=self.DIAS_LIQUIDACION_ANTES_DEL_EVENTO
+        )
+
+        definicion = [
+            (AbonoEvento.TipoAbono.ANTICIPO, self.PORCENTAJE_ANTICIPO, hoy),
+            (AbonoEvento.TipoAbono.INTERMEDIO, self.PORCENTAJE_INTERMEDIO, fecha_intermedia),
+            (AbonoEvento.TipoAbono.LIQUIDACION, self.PORCENTAJE_LIQUIDACION, fecha_liquidacion),
+        ]
+        for tipo, porcentaje, fecha_limite in definicion:
+            monto = (self.monto_total * porcentaje).quantize(Decimal("0.01"))
+            AbonoEvento.objects.update_or_create(
+                esquema=self,
+                tipo=tipo,
+                defaults={
+                    "porcentaje": porcentaje * 100,
+                    "monto": monto,
+                    "fecha_limite": fecha_limite,
+                },
+            )
+
+    def __str__(self):
+        return f"Esquema de pago - {self.evento.nombre_evento} (${self.monto_total})"
+
+
+class AbonoEvento(models.Model):
+    """Un abono (anticipo, pago intermedio o liquidación) del esquema de
+    cobro 50/30/20 del Módulo F."""
+
+    class TipoAbono(models.TextChoices):
+        ANTICIPO = "ANTICIPO", "Anticipo (50%) — apartado y firma de contrato"
+        INTERMEDIO = "INTERMEDIO", "Pago intermedio (30%) — fecha de prueba de menú"
+        LIQUIDACION = "LIQUIDACION", "Liquidación (20%) — 15 días antes del evento"
+
+    esquema = models.ForeignKey(
+        EsquemaPagoEvento, on_delete=models.CASCADE, related_name="abonos"
+    )
+    tipo = models.CharField(max_length=15, choices=TipoAbono.choices)
+    porcentaje = models.DecimalField(max_digits=5, decimal_places=2)
+    monto = models.DecimalField(max_digits=12, decimal_places=2)
+    fecha_limite = models.DateField()
+    pagado = models.BooleanField(default=False)
+    fecha_pago = models.DateField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Abono de Evento"
+        verbose_name_plural = "Abonos de Evento"
+        ordering = ["fecha_limite"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["esquema", "tipo"], name="unique_tipo_abono_por_esquema"
+            )
+        ]
+
+    @property
+    def vencido(self) -> bool:
+        return not self.pagado and self.fecha_limite < timezone.localdate()
+
+    def marcar_pagado(self):
+        self.pagado = True
+        self.fecha_pago = timezone.localdate()
+        self.save(update_fields=["pagado", "fecha_pago"])
+
+    def __str__(self):
+        estado = "pagado" if self.pagado else "pendiente"
+        return f"{self.get_tipo_display()} - ${self.monto} ({estado})"

@@ -1,18 +1,26 @@
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django.test import TestCase
 
 from core.models import (
+    CheckIn,
     Cliente,
+    ConfiguracionCotizador,
     DetalleMenuEvento,
     EmpresaBanquetera,
+    EsquemaPagoEvento,
     Evento,
     InventarioEquipo,
     ListaCargaEvento,
+    PersonalEventual,
+    Postulacion,
+    PruebaMenu,
     RecetaMaestra,
     RequerimientoEquipoTiempo,
     SedeEvento,
     TiempoMenu,
+    VacanteEvento,
 )
 
 
@@ -141,3 +149,212 @@ class ListaCargaFactorRoturaTestCase(TestCase):
         detalle = lista.detalles.get(articulo__nombre="Plato de postre")
         self.assertEqual(detalle.cantidad_requerida, 3)
         self.assertEqual(detalle.cantidad_a_cargar, 4)
+
+
+class ConfiguracionCotizadorTestCase(TestCase):
+    """Verifica el Cotizador por Volumen (Módulo F): el precio por persona
+    debe subir cuando hay menos invitados, porque los costos fijos de
+    transporte y personal se reparten entre menos comensales."""
+
+    def setUp(self):
+        self.empresa = EmpresaBanquetera.objects.create(nombre_comercial="Banquetes Demo")
+        self.configuracion = ConfiguracionCotizador.objects.create(
+            empresa=self.empresa,
+            costo_base_por_persona=Decimal("450.00"),
+            costos_fijos_transporte_personal=Decimal("18000.00"),
+        )
+
+    def test_precio_por_persona_incluye_costos_fijos_repartidos(self):
+        cotizacion = self.configuracion.cotizar(100)
+        # 18000 / 100 = 180 de costos fijos por persona.
+        self.assertEqual(cotizacion["costos_fijos_por_persona"], Decimal("180.00"))
+        self.assertEqual(cotizacion["precio_por_persona"], Decimal("630.00"))
+        self.assertEqual(cotizacion["precio_total"], Decimal("63000.00"))
+
+    def test_precio_por_persona_es_inversamente_proporcional_a_invitados(self):
+        # A menor número de invitados, mayor precio por persona (mismos
+        # costos fijos repartidos entre menos gente).
+        cotizacion_pocos = self.configuracion.cotizar(50)
+        cotizacion_muchos = self.configuracion.cotizar(300)
+        self.assertGreater(
+            cotizacion_pocos["precio_por_persona"], cotizacion_muchos["precio_por_persona"]
+        )
+
+    def test_numero_invitados_cero_o_negativo_lanza_error(self):
+        from django.core.exceptions import ValidationError
+
+        with self.assertRaises(ValidationError):
+            self.configuracion.cotizar(0)
+
+
+class EsquemaPagoEventoTestCase(TestCase):
+    """Verifica el Esquema de Cobro Automatizado 50/30/20 del Módulo F."""
+
+    def setUp(self):
+        self.empresa = EmpresaBanquetera.objects.create(nombre_comercial="Banquetes Demo")
+        self.cliente = Cliente.objects.create(
+            empresa=self.empresa, nombre="Cliente Demo", telefono="555-0001",
+        )
+        self.sede = SedeEvento.objects.create(
+            empresa=self.empresa, nombre="Jardín Demo", direccion="Calle 1",
+        )
+        self.evento = Evento.objects.create(
+            empresa=self.empresa, nombre_evento="Boda Demo",
+            fecha=date.today() + timedelta(days=100), numero_invitados=100,
+            tipo_cliente=Evento.TipoCliente.DIRECTO,
+            cliente=self.cliente, sede=self.sede,
+        )
+
+    def test_genera_abonos_con_split_50_30_20(self):
+        esquema = EsquemaPagoEvento.objects.create(evento=self.evento, monto_total=Decimal("100000.00"))
+        esquema.generar_o_actualizar_abonos()
+
+        abonos = {a.tipo: a for a in esquema.abonos.all()}
+        self.assertEqual(set(abonos.keys()), {"ANTICIPO", "INTERMEDIO", "LIQUIDACION"})
+        self.assertEqual(abonos["ANTICIPO"].monto, Decimal("50000.00"))
+        self.assertEqual(abonos["INTERMEDIO"].monto, Decimal("30000.00"))
+        self.assertEqual(abonos["LIQUIDACION"].monto, Decimal("20000.00"))
+
+    def test_fecha_intermedia_usa_primera_prueba_de_menu_si_existe(self):
+        fecha_prueba = date.today() + timedelta(days=20)
+        PruebaMenu.objects.create(
+            evento=self.evento, fecha_prueba=fecha_prueba, asistentes=4,
+        )
+        esquema = EsquemaPagoEvento.objects.create(evento=self.evento, monto_total=Decimal("100000.00"))
+        esquema.generar_o_actualizar_abonos()
+
+        abono_intermedio = esquema.abonos.get(tipo="INTERMEDIO")
+        self.assertEqual(abono_intermedio.fecha_limite, fecha_prueba)
+
+    def test_fecha_intermedia_sin_prueba_de_menu_cae_30_dias_antes_del_evento(self):
+        esquema = EsquemaPagoEvento.objects.create(evento=self.evento, monto_total=Decimal("100000.00"))
+        esquema.generar_o_actualizar_abonos()
+
+        abono_intermedio = esquema.abonos.get(tipo="INTERMEDIO")
+        self.assertEqual(abono_intermedio.fecha_limite, self.evento.fecha - timedelta(days=30))
+
+    def test_fecha_liquidacion_es_15_dias_antes_del_evento(self):
+        esquema = EsquemaPagoEvento.objects.create(evento=self.evento, monto_total=Decimal("100000.00"))
+        esquema.generar_o_actualizar_abonos()
+
+        abono_liquidacion = esquema.abonos.get(tipo="LIQUIDACION")
+        self.assertEqual(abono_liquidacion.fecha_limite, self.evento.fecha - timedelta(days=15))
+
+    def test_abono_vencido_solo_si_no_esta_pagado_y_ya_paso_la_fecha(self):
+        esquema = EsquemaPagoEvento.objects.create(evento=self.evento, monto_total=Decimal("100000.00"))
+        esquema.generar_o_actualizar_abonos()
+        abono_anticipo = esquema.abonos.get(tipo="ANTICIPO")
+
+        # Recién generado (fecha_limite = hoy, no vencido todavía).
+        self.assertFalse(abono_anticipo.vencido)
+
+        # Si la fecha límite ya pasó y no se ha pagado, está vencido.
+        abono_anticipo.fecha_limite = date.today() - timedelta(days=1)
+        abono_anticipo.save(update_fields=["fecha_limite"])
+        self.assertTrue(abono_anticipo.vencido)
+
+        # Una vez pagado, deja de estar vencido aunque la fecha ya pasó.
+        abono_anticipo.marcar_pagado()
+        self.assertFalse(abono_anticipo.vencido)
+
+
+class VacanteEventoTestCase(TestCase):
+    """Verifica la Bolsa de Trabajo (Módulo E): cuántas postulaciones
+    aceptadas tiene una vacante y si ya quedó cubierta."""
+
+    def setUp(self):
+        self.empresa = EmpresaBanquetera.objects.create(nombre_comercial="Banquetes Demo")
+        self.cliente = Cliente.objects.create(
+            empresa=self.empresa, nombre="Cliente Demo", telefono="555-0001",
+        )
+        self.sede = SedeEvento.objects.create(
+            empresa=self.empresa, nombre="Jardín Demo", direccion="Calle 1",
+        )
+        self.evento = Evento.objects.create(
+            empresa=self.empresa, nombre_evento="Boda Demo",
+            fecha=date.today() + timedelta(days=30), numero_invitados=100,
+            tipo_cliente=Evento.TipoCliente.DIRECTO,
+            cliente=self.cliente, sede=self.sede,
+        )
+        self.vacante = VacanteEvento.objects.create(
+            evento=self.evento, rol=PersonalEventual.Rol.MESERO,
+            cantidad_requerida=2, tarifa_por_turno=Decimal("600.00"),
+        )
+        self.mesero_1 = PersonalEventual.objects.create(
+            empresa=self.empresa, nombre="Mesero 1", telefono="555-1001",
+            rol_principal=PersonalEventual.Rol.MESERO,
+        )
+        self.mesero_2 = PersonalEventual.objects.create(
+            empresa=self.empresa, nombre="Mesero 2", telefono="555-1002",
+            rol_principal=PersonalEventual.Rol.MESERO,
+        )
+        self.mesero_3 = PersonalEventual.objects.create(
+            empresa=self.empresa, nombre="Mesero 3", telefono="555-1003",
+            rol_principal=PersonalEventual.Rol.MESERO,
+        )
+
+    def test_vacante_no_cubierta_sin_postulaciones_aceptadas(self):
+        Postulacion.objects.create(
+            vacante=self.vacante, personal=self.mesero_1, estado=Postulacion.Estado.POSTULADO,
+        )
+        self.assertEqual(self.vacante.cantidad_aceptada, 0)
+        self.assertFalse(self.vacante.cubierta)
+
+    def test_vacante_cubierta_cuando_aceptados_alcanzan_lo_requerido(self):
+        Postulacion.objects.create(
+            vacante=self.vacante, personal=self.mesero_1, estado=Postulacion.Estado.ACEPTADO,
+        )
+        Postulacion.objects.create(
+            vacante=self.vacante, personal=self.mesero_2, estado=Postulacion.Estado.ACEPTADO,
+        )
+        Postulacion.objects.create(
+            vacante=self.vacante, personal=self.mesero_3, estado=Postulacion.Estado.RECHAZADO,
+        )
+        self.assertEqual(self.vacante.cantidad_aceptada, 2)
+        self.assertTrue(self.vacante.cubierta)
+
+
+class CheckInTestCase(TestCase):
+    """Verifica el Check-In de Personal Eventual (Módulo E)."""
+
+    def setUp(self):
+        self.empresa = EmpresaBanquetera.objects.create(nombre_comercial="Banquetes Demo")
+        self.cliente = Cliente.objects.create(
+            empresa=self.empresa, nombre="Cliente Demo", telefono="555-0001",
+        )
+        self.sede = SedeEvento.objects.create(
+            empresa=self.empresa, nombre="Jardín Demo", direccion="Calle 1",
+        )
+        self.evento = Evento.objects.create(
+            empresa=self.empresa, nombre_evento="Boda Demo",
+            fecha=date.today() + timedelta(days=30), numero_invitados=100,
+            tipo_cliente=Evento.TipoCliente.DIRECTO,
+            cliente=self.cliente, sede=self.sede,
+        )
+        self.vacante = VacanteEvento.objects.create(
+            evento=self.evento, rol=PersonalEventual.Rol.MESERO,
+            cantidad_requerida=1, tarifa_por_turno=Decimal("600.00"),
+        )
+        self.mesero = PersonalEventual.objects.create(
+            empresa=self.empresa, nombre="Mesero 1", telefono="555-1001",
+            rol_principal=PersonalEventual.Rol.MESERO,
+        )
+        self.postulacion = Postulacion.objects.create(
+            vacante=self.vacante, personal=self.mesero, estado=Postulacion.Estado.ACEPTADO,
+        )
+
+    def test_codigo_verificacion_se_genera_solo_y_es_unico(self):
+        check_in_1 = CheckIn.objects.create(postulacion=self.postulacion)
+        self.assertEqual(len(check_in_1.codigo_verificacion), 8)
+        self.assertFalse(check_in_1.asistio)
+
+    def test_confirmar_marca_asistencia_con_hora_y_responsable(self):
+        check_in = CheckIn.objects.create(postulacion=self.postulacion)
+        self.assertIsNone(check_in.hora_checkin)
+
+        check_in.confirmar(confirmado_por="Capitán de Meseros")
+
+        check_in.refresh_from_db()
+        self.assertTrue(check_in.asistio)
+        self.assertIsNotNone(check_in.hora_checkin)
+        self.assertEqual(check_in.confirmado_por, "Capitán de Meseros")

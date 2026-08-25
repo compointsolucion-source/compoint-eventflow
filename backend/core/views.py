@@ -3,47 +3,62 @@ from io import StringIO
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from rest_framework import viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from food_cost.services import costo_total_evento, explosion_insumos_evento
+from food_cost.services import costo_total_evento, cotizar_evento, explosion_insumos_evento
 
 from .models import (
+    AbonoEvento,
+    CheckIn,
     Cliente,
+    ConfiguracionCotizador,
     DetalleListaCarga,
     DetalleMenuEvento,
     EmpresaBanquetera,
+    EsquemaPagoEvento,
     Evento,
     IngredienteReceta,
     InventarioEquipo,
     Insumo,
     ListaCargaEvento,
+    PersonalEventual,
+    Postulacion,
     PruebaMenu,
     RecetaMaestra,
     RegistroRoturas,
     RequerimientoEquipoTiempo,
     SedeEvento,
+    VacanteEvento,
 )
 from .serializers import (
+    AbonoEventoSerializer,
+    CheckInSerializer,
     ClienteSerializer,
+    ConfiguracionCotizadorSerializer,
     DetalleListaCargaSerializer,
     DetalleMenuEventoSerializer,
     EmpresaBanqueteraSerializer,
+    EsquemaPagoEventoSerializer,
     EventoPlannerSerializer,
     EventoSerializer,
     IngredienteRecetaSerializer,
     InsumoSerializer,
     InventarioEquipoSerializer,
     ListaCargaEventoSerializer,
+    PersonalEventualSerializer,
+    PostulacionSerializer,
     PruebaMenuSerializer,
     RecetaMaestraPlannerSerializer,
     RecetaMaestraSerializer,
     RegistroRoturasSerializer,
     RequerimientoEquipoTiempoSerializer,
     SedeEventoSerializer,
+    VacanteEventoSerializer,
 )
 
 
@@ -188,6 +203,69 @@ class ListaCargaEventoViewSet(viewsets.ModelViewSet):
     serializer_class = ListaCargaEventoSerializer
 
 
+class PersonalEventualViewSet(viewsets.ModelViewSet):
+    """Módulo E: personal eventual registrado (meseros, bartenders,
+    garroteros, capitanes) disponible para postularse a vacantes."""
+
+    queryset = PersonalEventual.objects.all()
+    serializer_class = PersonalEventualSerializer
+
+
+class VacanteEventoViewSet(viewsets.ModelViewSet):
+    """Bolsa de Trabajo (Módulo E): vacantes por evento, con sus
+    postulaciones y el check-in de cada una ya incluidos."""
+
+    queryset = VacanteEvento.objects.select_related("evento").prefetch_related(
+        "postulaciones__personal", "postulaciones__check_in"
+    ).all()
+    serializer_class = VacanteEventoSerializer
+
+
+class PostulacionViewSet(viewsets.ModelViewSet):
+    queryset = Postulacion.objects.select_related("personal", "vacante", "check_in").all()
+    serializer_class = PostulacionSerializer
+
+    @action(detail=True, methods=["post"], url_path="confirmar-checkin")
+    def confirmar_checkin(self, request, pk=None):
+        """Confirma la asistencia del trabajador (equivalente al Capitán de
+        Meseros escaneando su código/QR el día del evento)."""
+        postulacion = self.get_object()
+        check_in, _creado = CheckIn.objects.get_or_create(postulacion=postulacion)
+        check_in.confirmar(confirmado_por=request.data.get("confirmado_por", ""))
+        return Response(CheckInSerializer(check_in).data)
+
+
+class CheckInViewSet(viewsets.ModelViewSet):
+    queryset = CheckIn.objects.select_related("postulacion__personal").all()
+    serializer_class = CheckInSerializer
+
+
+class ConfiguracionCotizadorViewSet(viewsets.ModelViewSet):
+    queryset = ConfiguracionCotizador.objects.all()
+    serializer_class = ConfiguracionCotizadorSerializer
+
+
+class EsquemaPagoEventoViewSet(viewsets.ModelViewSet):
+    """Módulo F: esquema de cobro 50/30/20 por evento, con sus abonos ya
+    calculados (montos y fechas límite)."""
+
+    queryset = EsquemaPagoEvento.objects.select_related("evento").prefetch_related(
+        "abonos"
+    ).all()
+    serializer_class = EsquemaPagoEventoSerializer
+
+
+class AbonoEventoViewSet(viewsets.ModelViewSet):
+    queryset = AbonoEvento.objects.select_related("esquema__evento").all()
+    serializer_class = AbonoEventoSerializer
+
+    @action(detail=True, methods=["post"], url_path="marcar-pagado")
+    def marcar_pagado(self, request, pk=None):
+        abono = self.get_object()
+        abono.marcar_pagado()
+        return Response(AbonoEventoSerializer(abono).data)
+
+
 class EventoViewSet(viewsets.ModelViewSet):
     """Expone la Agenda Semáforo. `?vista=planner` simula el portal
     colaborativo restringido (sin costos/márgenes) mientras no exista
@@ -221,3 +299,19 @@ class EventoViewSet(viewsets.ModelViewSet):
                 "costo_total_insumos": str(costo_total_evento(evento)),
             }
         )
+
+    @action(detail=True, methods=["get"], url_path="cotizacion")
+    def cotizacion(self, request, pk=None):
+        """Cotizador por Volumen (Módulo F): precio por persona y total del
+        evento, repartiendo los costos fijos entre el número de invitados.
+        No disponible en la vista `planner` (contiene costos/márgenes)."""
+        evento = self.get_object()
+        if request.query_params.get("vista") == "planner":
+            return Response(
+                {"detail": "No autorizado para el portal de Event Planner."},
+                status=403,
+            )
+        try:
+            return Response(cotizar_evento(evento))
+        except ValidationError as exc:
+            return Response({"detail": str(exc)}, status=400)

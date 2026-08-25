@@ -2,15 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { API_BASE } from "./api.js";
 import Recetario from "./Recetario.jsx";
 import Bodega from "./Bodega.jsx";
+import Personal from "./Personal.jsx";
+import Finanzas from "./Finanzas.jsx";
 
 /**
  * Dashboard principal de COMPOINT EventFlow.
  * Implementa el "PROMPT MAESTRO 2" del Plan Maestro: sidebar con logo +
  * slogan, 3 tarjetas KPI, y el componente "Agenda Semáforo". El menú
- * lateral cambia la vista mostrada en el área principal: Recetario y
- * Bodega ya están construidos con datos reales del backend; Personal
- * Eventual y Finanzas todavía no tienen modelos de datos (Módulos E y F
- * del plan maestro), así que muestran un aviso de "en construcción".
+ * lateral cambia la vista mostrada en el área principal: Recetario,
+ * Bodega, Personal Eventual (Módulo E) y Finanzas (Módulo F) ya están
+ * construidos con datos reales del backend.
  *
  * El componente intenta traer datos reales del backend Django
  * (GET /api/eventos/) y si no está disponible (ej. corriendo solo el
@@ -228,21 +229,6 @@ function EventoRow({ evento }) {
   );
 }
 
-function VistaProximamente({ label }) {
-  return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-white/60 px-6 py-16 text-center">
-      <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-navy-900/5 text-navy-900">
-        <IconAlert className="h-6 w-6" />
-      </span>
-      <h2 className="text-lg font-semibold text-navy-900">{label} — en construcción</h2>
-      <p className="mt-2 max-w-md text-sm text-slate-500">
-        Este módulo todavía no tiene modelos de datos ni pantalla propia. Cuando quieras,
-        pídeme que lo diseñemos y lo construyo igual que Recetario y Bodega.
-      </p>
-    </div>
-  );
-}
-
 function VistaResumen({ kpis, eventosOrdenados }) {
   return (
     <>
@@ -407,8 +393,8 @@ export default function Dashboard() {
         )}
         {activeNav === "recetario" && <Recetario />}
         {activeNav === "bodega" && <Bodega />}
-        {activeNav === "staffing" && <VistaProximamente label="Personal Eventual" />}
-        {activeNav === "finanzas" && <VistaProximamente label="Finanzas" />}
+        {activeNav === "staffing" && <Personal />}
+        {activeNav === "finanzas" && <Finanzas />}
       </main>
     </div>
   );

@@ -14,19 +14,25 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from core.models import (
+    CheckIn,
     Cliente,
+    ConfiguracionCotizador,
     DetalleMenuEvento,
     EmpresaBanquetera,
+    EsquemaPagoEvento,
     Evento,
     IngredienteReceta,
     InventarioEquipo,
     Insumo,
     ListaCargaEvento,
+    PersonalEventual,
+    Postulacion,
     PruebaMenu,
     RecetaMaestra,
     RequerimientoEquipoTiempo,
     SedeEvento,
     TiempoMenu,
+    VacanteEvento,
 )
 
 
@@ -222,9 +228,83 @@ class Command(BaseCommand):
         lista_carga = ListaCargaEvento.objects.create(evento=evento_confirmado)
         lista_carga.generar_o_actualizar_detalles()
 
+        # --- Módulo E: Personal Eventual, Bolsa de Trabajo y Check-In ---
+        meseros = [
+            PersonalEventual.objects.create(
+                empresa=empresa, nombre="Luis Hernández", telefono="55-7000-0001",
+                email="luis.h@example.com", rol_principal=PersonalEventual.Rol.MESERO,
+            ),
+            PersonalEventual.objects.create(
+                empresa=empresa, nombre="Karla Jiménez", telefono="55-7000-0002",
+                email="karla.j@example.com", rol_principal=PersonalEventual.Rol.MESERO,
+            ),
+            PersonalEventual.objects.create(
+                empresa=empresa, nombre="Diego Morales", telefono="55-7000-0003",
+                rol_principal=PersonalEventual.Rol.MESERO,
+            ),
+        ]
+        bartender = PersonalEventual.objects.create(
+            empresa=empresa, nombre="Fernanda Ruiz", telefono="55-7000-0004",
+            email="fer.ruiz@example.com", rol_principal=PersonalEventual.Rol.BARTENDER,
+        )
+        capitan = PersonalEventual.objects.create(
+            empresa=empresa, nombre="Roberto Salinas", telefono="55-7000-0005",
+            rol_principal=PersonalEventual.Rol.CAPITAN,
+        )
+
+        vacante_meseros = VacanteEvento.objects.create(
+            evento=evento_confirmado, rol=PersonalEventual.Rol.MESERO,
+            cantidad_requerida=3, tarifa_por_turno=Decimal("600.00"),
+            notas="Turno de 6 horas, uniforme de gala.",
+        )
+        vacante_bartender = VacanteEvento.objects.create(
+            evento=evento_confirmado, rol=PersonalEventual.Rol.BARTENDER,
+            cantidad_requerida=1, tarifa_por_turno=Decimal("750.00"),
+        )
+        vacante_capitan = VacanteEvento.objects.create(
+            evento=evento_confirmado, rol=PersonalEventual.Rol.CAPITAN,
+            cantidad_requerida=1, tarifa_por_turno=Decimal("900.00"),
+        )
+
+        # Postulaciones: 2 meseros aceptados (con check-in), 1 postulado sin resolver.
+        postulacion_luis = Postulacion.objects.create(
+            vacante=vacante_meseros, personal=meseros[0], estado=Postulacion.Estado.ACEPTADO,
+        )
+        CheckIn.objects.create(postulacion=postulacion_luis).confirmar(confirmado_por="Roberto Salinas")
+        Postulacion.objects.create(
+            vacante=vacante_meseros, personal=meseros[1], estado=Postulacion.Estado.ACEPTADO,
+        )
+        Postulacion.objects.create(
+            vacante=vacante_meseros, personal=meseros[2], estado=Postulacion.Estado.POSTULADO,
+        )
+        Postulacion.objects.create(
+            vacante=vacante_bartender, personal=bartender, estado=Postulacion.Estado.ACEPTADO,
+        )
+        Postulacion.objects.create(
+            vacante=vacante_capitan, personal=capitan, estado=Postulacion.Estado.ACEPTADO,
+        )
+
+        # --- Módulo F: Cotizador por Volumen y Esquema de Cobro 50/30/20 ---
+        ConfiguracionCotizador.objects.create(
+            empresa=empresa,
+            costo_base_por_persona=Decimal("450.00"),
+            costos_fijos_transporte_personal=Decimal("18000.00"),
+        )
+
+        esquema_pago = EsquemaPagoEvento.objects.create(
+            evento=evento_confirmado, monto_total=Decimal("336000.00"),
+        )
+        esquema_pago.generar_o_actualizar_abonos()
+        # El anticipo del evento confirmado ya se marca como pagado en la demo.
+        abono_anticipo = esquema_pago.abonos.get(tipo="ANTICIPO")
+        abono_anticipo.marcar_pagado()
+
         self.stdout.write(self.style.SUCCESS(
             f"Datos de demostración creados: {Evento.objects.count()} eventos, "
             f"{RecetaMaestra.objects.count()} recetas, {Insumo.objects.count()} insumos, "
             f"lista de carga con {lista_carga.detalles.count()} artículos "
-            f"(+{ListaCargaEvento.FACTOR_ROTURA * 100:.0f}% de rotura aplicado)."
+            f"(+{ListaCargaEvento.FACTOR_ROTURA * 100:.0f}% de rotura aplicado), "
+            f"{PersonalEventual.objects.count()} personal eventual, "
+            f"{VacanteEvento.objects.count()} vacantes, "
+            f"esquema de cobro 50/30/20 generado para el evento confirmado."
         ))

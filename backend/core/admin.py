@@ -1,20 +1,27 @@
 from django.contrib import admin
 
 from .models import (
+    AbonoEvento,
+    CheckIn,
     Cliente,
+    ConfiguracionCotizador,
     DetalleListaCarga,
     DetalleMenuEvento,
     EmpresaBanquetera,
+    EsquemaPagoEvento,
     Evento,
     IngredienteReceta,
     InventarioEquipo,
     Insumo,
     ListaCargaEvento,
+    PersonalEventual,
+    Postulacion,
     PruebaMenu,
     RecetaMaestra,
     RegistroRoturas,
     RequerimientoEquipoTiempo,
     SedeEvento,
+    VacanteEvento,
 )
 
 
@@ -125,3 +132,86 @@ class ListaCargaEventoAdmin(admin.ModelAdmin):
     def recalcular_detalles(self, request, queryset):
         for lista in queryset:
             lista.generar_o_actualizar_detalles()
+
+
+@admin.register(PersonalEventual)
+class PersonalEventualAdmin(admin.ModelAdmin):
+    list_display = ("nombre", "rol_principal", "telefono", "activo", "empresa")
+    list_filter = ("rol_principal", "activo", "empresa")
+    search_fields = ("nombre", "telefono", "email")
+
+
+class PostulacionInline(admin.TabularInline):
+    model = Postulacion
+    extra = 0
+    fields = ("personal", "estado", "postulado_en")
+    readonly_fields = ("postulado_en",)
+
+
+@admin.register(VacanteEvento)
+class VacanteEventoAdmin(admin.ModelAdmin):
+    list_display = (
+        "evento",
+        "rol",
+        "cantidad_requerida",
+        "cantidad_aceptada",
+        "cubierta",
+        "tarifa_por_turno",
+    )
+    list_filter = ("rol", "evento")
+    inlines = [PostulacionInline]
+
+
+@admin.register(Postulacion)
+class PostulacionAdmin(admin.ModelAdmin):
+    list_display = ("personal", "vacante", "estado", "postulado_en")
+    list_filter = ("estado",)
+    search_fields = ("personal__nombre",)
+
+
+@admin.register(CheckIn)
+class CheckInAdmin(admin.ModelAdmin):
+    list_display = ("postulacion", "codigo_verificacion", "hora_checkin", "asistio", "confirmado_por")
+    readonly_fields = ("codigo_verificacion",)
+    actions = ["confirmar_asistencia"]
+
+    @admin.action(description="Confirmar asistencia (check-in) ahora")
+    def confirmar_asistencia(self, request, queryset):
+        for check_in in queryset:
+            check_in.confirmar(confirmado_por=request.user.get_username())
+
+
+@admin.register(ConfiguracionCotizador)
+class ConfiguracionCotizadorAdmin(admin.ModelAdmin):
+    list_display = ("empresa", "costo_base_por_persona", "costos_fijos_transporte_personal")
+
+
+class AbonoEventoInline(admin.TabularInline):
+    model = AbonoEvento
+    extra = 0
+    fields = ("tipo", "porcentaje", "monto", "fecha_limite", "pagado", "fecha_pago")
+    readonly_fields = ("porcentaje", "monto")
+
+
+@admin.register(EsquemaPagoEvento)
+class EsquemaPagoEventoAdmin(admin.ModelAdmin):
+    list_display = ("evento", "monto_total", "generado_en", "actualizado_en")
+    inlines = [AbonoEventoInline]
+    actions = ["generar_o_actualizar_abonos"]
+
+    @admin.action(description="Generar/actualizar abonos 50/30/20")
+    def generar_o_actualizar_abonos(self, request, queryset):
+        for esquema in queryset:
+            esquema.generar_o_actualizar_abonos()
+
+
+@admin.register(AbonoEvento)
+class AbonoEventoAdmin(admin.ModelAdmin):
+    list_display = ("esquema", "tipo", "monto", "fecha_limite", "pagado", "vencido")
+    list_filter = ("tipo", "pagado")
+    actions = ["marcar_como_pagado"]
+
+    @admin.action(description="Marcar como pagado")
+    def marcar_como_pagado(self, request, queryset):
+        for abono in queryset:
+            abono.marcar_pagado()

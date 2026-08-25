@@ -12,20 +12,27 @@ el rol de quien consulta (ver `views.py`).
 from rest_framework import serializers
 
 from .models import (
+    AbonoEvento,
+    CheckIn,
     Cliente,
+    ConfiguracionCotizador,
     DetalleListaCarga,
     DetalleMenuEvento,
     EmpresaBanquetera,
+    EsquemaPagoEvento,
     Evento,
     IngredienteReceta,
     InventarioEquipo,
     Insumo,
     ListaCargaEvento,
+    PersonalEventual,
+    Postulacion,
     PruebaMenu,
     RecetaMaestra,
     RegistroRoturas,
     RequerimientoEquipoTiempo,
     SedeEvento,
+    VacanteEvento,
 )
 
 
@@ -148,6 +155,95 @@ class ListaCargaEventoSerializer(serializers.ModelSerializer):
         fields = [
             "id", "evento", "evento_nombre", "fecha_evento", "generada_en",
             "actualizada_en", "conteo_retorno_completado", "detalles",
+        ]
+
+
+class PersonalEventualSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PersonalEventual
+        fields = [
+            "id", "empresa", "nombre", "telefono", "email",
+            "rol_principal", "activo",
+        ]
+
+
+class CheckInSerializer(serializers.ModelSerializer):
+    asistio = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = CheckIn
+        fields = [
+            "id", "postulacion", "codigo_verificacion", "hora_checkin",
+            "confirmado_por", "asistio",
+        ]
+        read_only_fields = ["codigo_verificacion"]
+
+
+class PostulacionSerializer(serializers.ModelSerializer):
+    personal_nombre = serializers.CharField(source="personal.nombre", read_only=True)
+    personal_telefono = serializers.CharField(source="personal.telefono", read_only=True)
+    check_in = CheckInSerializer(read_only=True)
+
+    class Meta:
+        model = Postulacion
+        fields = [
+            "id", "vacante", "personal", "personal_nombre", "personal_telefono",
+            "estado", "postulado_en", "check_in",
+        ]
+
+
+class VacanteEventoSerializer(serializers.ModelSerializer):
+    """Bolsa de Trabajo (Módulo E): una vacante de un evento, con sus
+    postulaciones (y el check-in de cada una, si ya fue aceptada)."""
+
+    evento_nombre = serializers.CharField(source="evento.nombre_evento", read_only=True)
+    fecha_evento = serializers.DateField(source="evento.fecha", read_only=True)
+    cantidad_aceptada = serializers.IntegerField(read_only=True)
+    cubierta = serializers.BooleanField(read_only=True)
+    postulaciones = PostulacionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = VacanteEvento
+        fields = [
+            "id", "evento", "evento_nombre", "fecha_evento", "rol",
+            "cantidad_requerida", "cantidad_aceptada", "cubierta",
+            "tarifa_por_turno", "notas", "postulaciones",
+        ]
+
+
+class AbonoEventoSerializer(serializers.ModelSerializer):
+    vencido = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = AbonoEvento
+        fields = [
+            "id", "esquema", "tipo", "porcentaje", "monto", "fecha_limite",
+            "pagado", "fecha_pago", "vencido",
+        ]
+
+
+class EsquemaPagoEventoSerializer(serializers.ModelSerializer):
+    """Esquema de Cobro Automatizado 50/30/20 del Módulo F, con sus abonos
+    ya generados."""
+
+    evento_nombre = serializers.CharField(source="evento.nombre_evento", read_only=True)
+    fecha_evento = serializers.DateField(source="evento.fecha", read_only=True)
+    abonos = AbonoEventoSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = EsquemaPagoEvento
+        fields = [
+            "id", "evento", "evento_nombre", "fecha_evento", "monto_total",
+            "generado_en", "actualizado_en", "abonos",
+        ]
+
+
+class ConfiguracionCotizadorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ConfiguracionCotizador
+        fields = [
+            "id", "empresa", "costo_base_por_persona",
+            "costos_fijos_transporte_personal",
         ]
 
 

@@ -173,3 +173,21 @@ def costo_total_evento(evento) -> Decimal:
     lineas = explosion_insumos_evento(evento)
     total = sum((l.costo_total for l in lineas), Decimal("0"))
     return total.quantize(_COSTO_Q, rounding=ROUND_HALF_UP)
+
+
+def cotizar_evento(evento) -> dict:
+    """Cotizador por Volumen (Módulo F): calcula el precio por persona y el
+    precio total del evento repartiendo los costos fijos de transporte y
+    personal base entre el número de invitados — a menor volumen, mayor
+    precio unitario para absorber esos costos fijos entre menos comensales.
+
+    Delega el cálculo en `ConfiguracionCotizador.cotizar()` (una fila de
+    configuración por empresa); lanza `ValidationError` si la empresa
+    todavía no la tiene configurada."""
+    configuracion = getattr(evento.empresa, "configuracion_cotizador", None)
+    if configuracion is None:
+        raise ValidationError(
+            "La empresa no tiene configurado el Cotizador por Volumen "
+            "(falta crear su ConfiguracionCotizador)."
+        )
+    return configuracion.cotizar(evento.numero_invitados)
