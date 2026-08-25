@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE, authFetch, cerrarSesion, getUsername } from "./api.js";
 import Recetario from "./Recetario.jsx";
+import PruebasMenu from "./PruebasMenu.jsx";
 import Bodega from "./Bodega.jsx";
 import Personal from "./Personal.jsx";
 import Finanzas from "./Finanzas.jsx";
@@ -76,6 +77,7 @@ const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: IconGrid },
   { key: "agenda", label: "Agenda de Eventos", icon: IconCalendar },
   { key: "recetario", label: "Recetario / Food Cost", icon: IconChefHat },
+  { key: "pruebas-menu", label: "Pruebas de Menú", icon: IconFork },
   { key: "bodega", label: "Bodega e Inventario", icon: IconBox },
   { key: "staffing", label: "Personal Eventual", icon: IconUsers },
   { key: "finanzas", label: "Finanzas", icon: IconWallet },
@@ -425,6 +427,7 @@ export default function Dashboard({ onCerrarSesion }) {
           <VistaResumen kpis={kpis} eventosOrdenados={eventosOrdenados} />
         )}
         {activeNav === "recetario" && <Recetario />}
+        {activeNav === "pruebas-menu" && <PruebasMenu />}
         {activeNav === "bodega" && <Bodega />}
         {activeNav === "staffing" && <Personal />}
         {activeNav === "finanzas" && <Finanzas />}
