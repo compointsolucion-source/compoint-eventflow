@@ -9,8 +9,12 @@ la variante completa (uso interno/admin) y la variante "planner" que oculta
 el rol de quien consulta (ver `views.py`).
 """
 
+import copy
+
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
+from .services_capacidad import validar_capacidad_equipo, validar_capacidad_personal
 from .models import (
     AbonoEvento,
     CheckIn,
@@ -95,6 +99,19 @@ class DetalleMenuEventoSerializer(serializers.ModelSerializer):
     class Meta:
         model = DetalleMenuEvento
         fields = ["id", "evento", "receta", "receta_detalle", "notas_personalizacion"]
+
+    def validate(self, attrs):
+        # Módulo A: antes de agregar este tiempo de menú, valida que la loza
+        # que haría falta ese día no rebase el inventario disponible entre
+        # todos los eventos que ya bloquean esa fecha.
+        evento = attrs.get("evento") or (self.instance.evento if self.instance else None)
+        receta = attrs.get("receta") or (self.instance.receta if self.instance else None)
+        if evento and receta:
+            try:
+                validar_capacidad_equipo(evento, tiempo_menu_extra=receta.tiempo_menu)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"receta": exc.messages})
+        return attrs
 
 
 class PruebaMenuSerializer(serializers.ModelSerializer):
@@ -235,6 +252,28 @@ class VacanteEventoSerializer(serializers.ModelSerializer):
             "tarifa_por_turno", "notas", "postulaciones",
         ]
 
+    def validate(self, attrs):
+        # Módulo A: antes de agregar/ampliar esta vacante, valida que el
+        # personal de este rol no rebase el total de personal activo en la
+        # bolsa de trabajo entre todos los eventos que ya bloquean esa fecha.
+        evento = attrs.get("evento") or (self.instance.evento if self.instance else None)
+        rol = attrs.get("rol", self.instance.rol if self.instance else None)
+        cantidad_requerida = attrs.get(
+            "cantidad_requerida",
+            self.instance.cantidad_requerida if self.instance else None,
+        )
+        if evento and rol and cantidad_requerida:
+            try:
+                validar_capacidad_personal(
+                    evento,
+                    rol_extra=rol,
+                    cantidad_extra=cantidad_requerida,
+                    excluir_vacante_id=self.instance.pk if self.instance else None,
+                )
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"cantidad_requerida": exc.messages})
+        return attrs
+
 
 class AbonoEventoSerializer(serializers.ModelSerializer):
     vencido = serializers.BooleanField(read_only=True)
@@ -280,6 +319,11 @@ class EventoSerializer(serializers.ModelSerializer):
     estado_semaforo_display = serializers.CharField(
         source="get_estado_semaforo_display", read_only=True
     )
+    # Módulo A: reglas automáticas del Semáforo de Fechas, calculadas al
+    # vuelo (sin depender de un cron/scheduler) — ver `Evento.vencido` /
+    # `Evento.bloquea_fecha` en models.py.
+    vencido = serializers.BooleanField(read_only=True)
+    bloquea_fecha = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Evento
@@ -289,8 +333,44 @@ class EventoSerializer(serializers.ModelSerializer):
             "cliente", "cliente_nombre", "sede", "sede_nombre",
             "fecha_cotizacion", "fecha_vencimiento_prospecto",
             "fecha_limite_anticipo", "fecha_registro_anticipo",
-            "autorizado_proveedor_externo", "creado_en", "actualizado_en",
+            "autorizado_proveedor_externo", "vencido", "bloquea_fecha",
+            "creado_en", "actualizado_en",
         ]
+
+    def validate(self, attrs):
+        # --- Capacidad de invitados de la sede (Módulo A) ---
+        sede = attrs.get("sede") or (self.instance.sede if self.instance else None)
+        numero_invitados = attrs.get(
+            "numero_invitados",
+            self.instance.numero_invitados if self.instance else None,
+        )
+        if sede and numero_invitados and sede.capacidad_maxima_invitados:
+            if numero_invitados > sede.capacidad_maxima_invitados:
+                raise serializers.ValidationError(
+                    {
+                        "numero_invitados": (
+                            f"La sede '{sede.nombre}' tiene una capacidad máxima de "
+                            f"{sede.capacidad_maxima_invitados} invitados."
+                        )
+                    }
+                )
+
+        # --- Bloqueo de capacidad de loza/personal por fecha (Módulo A) ---
+        # Solo aplica al EDITAR un evento que ya existe (fecha, estado o
+        # invitados nuevos podrían saturar la fecha destino con el menú o
+        # las vacantes que ya tiene capturados). Un evento recién creado
+        # todavía no tiene nada que pese en bodega ni en la bolsa de trabajo.
+        if self.instance is not None:
+            copia = copy.copy(self.instance)
+            for campo, valor in attrs.items():
+                setattr(copia, campo, valor)
+            try:
+                validar_capacidad_equipo(copia)
+                validar_capacidad_personal(copia)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"fecha": exc.messages})
+
+        return attrs
 
 
 class EventoPlannerSerializer(serializers.ModelSerializer):

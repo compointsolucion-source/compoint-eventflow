@@ -31,6 +31,25 @@ def _generar_token_planner() -> str:
     return secrets.token_urlsafe(24)
 
 
+def _sumar_dias_habiles(fecha_inicio, dias_habiles):
+    """Suma `dias_habiles` (de lunes a viernes, sin considerar días
+    festivos) a `fecha_inicio`. Se usa para calcular la fecha límite del
+    anticipo de un Apartado (Módulo A: 5 días hábiles)."""
+    fecha = fecha_inicio
+    agregados = 0
+    while agregados < dias_habiles:
+        fecha += timedelta(days=1)
+        if fecha.weekday() < 5:  # 0=lunes ... 4=viernes
+            agregados += 1
+    return fecha
+
+
+def _redondear_arriba(cantidad_decimal) -> int:
+    """Redondea siempre hacia arriba (nunca se quiere quedar corto de loza
+    ni de personal en un evento real)."""
+    return int(Decimal(cantidad_decimal).to_integral_value(rounding=ROUND_CEILING))
+
+
 class TiempoMenu(models.TextChoices):
     """Tiempos de menú compartidos por `RecetaMaestra` y
     `RequerimientoEquipoTiempo`, para poder cruzar qué recetas contrató un
@@ -197,7 +216,16 @@ class Evento(models.Model):
     fecha_limite_anticipo = models.DateField(null=True, blank=True)
     fecha_registro_anticipo = models.DateTimeField(null=True, blank=True)
     autorizado_proveedor_externo = models.BooleanField(
-        "¿Administrador autorizó renta de equipo externo?", default=False
+        "¿Administrador ya autorizó cubrir por fuera el faltante de equipo o "
+        "personal de este día? (renta externa / staff extra)",
+        default=False,
+        help_text=(
+            "Actívalo si ya resolviste por fuera (renta externa, personal "
+            "extra) que este día esté saturado de loza o personal en el "
+            "sistema. Con esto el bloqueo automático de capacidad del "
+            "Módulo A deja pasar este evento aunque el inventario interno "
+            "no alcance."
+        ),
     )
 
     # Portal colaborativo del Event Planner (Módulo A): acceso sin cuenta ni
@@ -227,11 +255,90 @@ class Evento(models.Model):
 
         return f"{settings.FRONTEND_URL}/planner/{self.token_planner}/"
 
+    # --- Reglas automáticas del Semáforo de Fechas (Módulo A) ---------------
+    # No hay un cron/scheduler en el plan gratuito de Render, así que el
+    # vencimiento NUNCA depende de que un job externo "pase" a revisarlo:
+    # se calcula al vuelo cada vez que se consulta, comparando la fecha/hora
+    # actual contra los campos guardados. Un evento vencido no se borra ni
+    # se modifica solo -sigue visible para que el staff lo reactive a mano-,
+    # simplemente deja de contar para bloquear esa fecha.
+
+    @property
+    def prospecto_vencido(self) -> bool:
+        """True si este Prospecto ya pasó las 72 horas sin avanzar a
+        Apartado/Confirmado."""
+        return (
+            self.estado_semaforo == self.EstadoSemaforo.PROSPECTO
+            and self.fecha_vencimiento_prospecto is not None
+            and timezone.now() > self.fecha_vencimiento_prospecto
+        )
+
+    @property
+    def anticipo_vencido(self) -> bool:
+        """True si este Apartado ya pasó su fecha límite de anticipo (5 días
+        hábiles) sin que se registrara el pago."""
+        return (
+            self.estado_semaforo == self.EstadoSemaforo.APARTADO
+            and self.fecha_registro_anticipo is None
+            and self.fecha_limite_anticipo is not None
+            and timezone.localdate() > self.fecha_limite_anticipo
+        )
+
+    @property
+    def vencido(self) -> bool:
+        """True si el evento venció automáticamente (Prospecto o Apartado) y
+        por lo tanto ya no debe bloquear su fecha para otros eventos."""
+        return self.prospecto_vencido or self.anticipo_vencido
+
+    @property
+    def bloquea_fecha(self) -> bool:
+        """True si este evento debe contar para el bloqueo de capacidad de
+        loza/personal de su fecha (Módulo A). Un Confirmado siempre bloquea;
+        un Apartado bloquea mientras no haya vencido su plazo de anticipo.
+        Un Prospecto nunca bloquea por sí solo: es solo una cotización."""
+        if self.vencido:
+            return False
+        return self.estado_semaforo in (
+            self.EstadoSemaforo.APARTADO,
+            self.EstadoSemaforo.CONFIRMADO,
+        )
+
+    def save(self, *args, **kwargs):
+        # Al cotizar un Prospecto, se le da automáticamente su plazo de 72
+        # horas (si no se capturó a mano). Al pasar a Apartado, se le da
+        # automáticamente su plazo de 5 días hábiles para el anticipo.
+        if (
+            self.estado_semaforo == self.EstadoSemaforo.PROSPECTO
+            and self.fecha_vencimiento_prospecto is None
+        ):
+            self.fecha_vencimiento_prospecto = timezone.now() + timedelta(hours=72)
+        if (
+            self.estado_semaforo == self.EstadoSemaforo.APARTADO
+            and self.fecha_limite_anticipo is None
+        ):
+            self.fecha_limite_anticipo = _sumar_dias_habiles(timezone.localdate(), 5)
+        super().save(*args, **kwargs)
+
     def clean(self):
         # El planner nunca debe llegar a ver costos/márgenes: se refuerza a
         # nivel de serializer/permisos, pero validamos consistencia de tipo.
         if self.tipo_cliente == self.TipoCliente.PLANNER and not self.cliente_id:
             raise ValidationError("Un evento con Event Planner requiere un cliente asociado.")
+        # Bloqueo por capacidad de invitados de la sede (Módulo A).
+        if (
+            self.sede_id
+            and self.numero_invitados
+            and self.sede.capacidad_maxima_invitados
+            and self.numero_invitados > self.sede.capacidad_maxima_invitados
+        ):
+            raise ValidationError(
+                {
+                    "numero_invitados": (
+                        f"La sede '{self.sede.nombre}' tiene una capacidad máxima de "
+                        f"{self.sede.capacidad_maxima_invitados} invitados."
+                    )
+                }
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -555,6 +662,43 @@ class RequerimientoEquipoTiempo(models.Model):
         )
 
 
+def _calcular_cantidades_equipo(evento, tiempo_menu_extra=None):
+    """Devuelve {articulo_id: cantidad_requerida_entera} cruzando los
+    tiempos de menú realmente contratados por `evento` con el catálogo
+    `RequerimientoEquipoTiempo` de su empresa. No depende de que ya exista
+    una `ListaCargaEvento` guardada: la usa tanto `generar_o_actualizar_detalles`
+    (Módulo D) como el bloqueo de capacidad por fecha (Módulo A).
+
+    `tiempo_menu_extra` permite previsualizar el efecto de agregar un tiempo
+    de menú que todavía NO se ha guardado (por ejemplo, para validar ANTES
+    de guardar un nuevo `DetalleMenuEvento`)."""
+    tiempos_contratados = set(
+        evento.detalle_menu.values_list("receta__tiempo_menu", flat=True)
+    )
+    if tiempo_menu_extra:
+        tiempos_contratados.add(tiempo_menu_extra)
+    if not tiempos_contratados:
+        return {}
+
+    requerimientos = RequerimientoEquipoTiempo.objects.filter(
+        empresa_id=evento.empresa_id, tiempo_menu__in=tiempos_contratados
+    )
+
+    # Un mismo artículo puede servir a más de un tiempo del menú (ej. el
+    # "Plato plano" se usa tanto en ENTRADA como en FUERTE), así que se
+    # consolidan las cantidades por artículo antes de redondear.
+    cantidades_por_articulo = {}
+    for req in requerimientos:
+        acumulado = cantidades_por_articulo.setdefault(req.articulo_id, Decimal("0"))
+        cantidades_por_articulo[req.articulo_id] = acumulado + (
+            req.cantidad_por_invitado * evento.numero_invitados
+        )
+    return {
+        articulo_id: _redondear_arriba(cantidad)
+        for articulo_id, cantidad in cantidades_por_articulo.items()
+    }
+
+
 # ---------------------------------------------------------------------------
 # 12. ListaCargaEvento / DetalleListaCarga (Factor +10% de Rotura, Módulo D)
 # ---------------------------------------------------------------------------
@@ -587,35 +731,17 @@ class ListaCargaEvento(models.Model):
     def generar_o_actualizar_detalles(self):
         """Recalcula las líneas de la lista de carga a partir de los tiempos
         de menú realmente contratados en el evento y el catálogo
-        `RequerimientoEquipoTiempo` de la empresa. Se puede volver a llamar
-        cada vez que cambie el menú o el número de invitados del evento
-        (ej. al confirmarse la garantía final)."""
-        tiempos_contratados = set(
-            self.evento.detalle_menu.values_list("receta__tiempo_menu", flat=True)
-        )
-        requerimientos = RequerimientoEquipoTiempo.objects.filter(
-            empresa=self.evento.empresa, tiempo_menu__in=tiempos_contratados
-        ).select_related("articulo")
-
-        # Un mismo artículo puede servir a más de un tiempo del menú (ej. el
-        # "Plato plano" se usa tanto en ENTRADA como en FUERTE), así que se
-        # consolidan las cantidades por artículo antes de guardar.
-        cantidades_por_articulo = {}
-        for req in requerimientos:
-            acumulado = cantidades_por_articulo.setdefault(req.articulo_id, Decimal("0"))
-            cantidades_por_articulo[req.articulo_id] = acumulado + (
-                req.cantidad_por_invitado * self.evento.numero_invitados
-            )
+        `RequerimientoEquipoTiempo` de la empresa (ver `_calcular_cantidades_equipo`).
+        Se puede volver a llamar cada vez que cambie el menú o el número de
+        invitados del evento (ej. al confirmarse la garantía final)."""
+        cantidades_por_articulo = _calcular_cantidades_equipo(self.evento)
 
         articulos_vigentes = set(cantidades_por_articulo.keys())
         # Quita líneas de artículos que ya no correspondan (ej. se eliminó un
         # tiempo del menú) para que la lista siempre refleje el menú actual.
         self.detalles.exclude(articulo_id__in=articulos_vigentes).delete()
 
-        for articulo_id, cantidad_requerida in cantidades_por_articulo.items():
-            cantidad_entera = int(
-                cantidad_requerida.to_integral_value(rounding=ROUND_CEILING)
-            )
+        for articulo_id, cantidad_entera in cantidades_por_articulo.items():
             DetalleListaCarga.objects.update_or_create(
                 lista_carga=self,
                 articulo_id=articulo_id,

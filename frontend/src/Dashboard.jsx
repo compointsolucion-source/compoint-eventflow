@@ -219,6 +219,14 @@ function EventoRow({ evento }) {
           >
             {estilo.emoji} {estilo.label}
           </span>
+          {evento.vencido && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full border border-slate-400 bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600"
+              title="Módulo A: se venció solo (72h sin avanzar, o anticipo no llegó a tiempo) y ya no bloquea esta fecha."
+            >
+              ⏳ Vencido
+            </span>
+          )}
           <span
             className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ${
               esPlanner

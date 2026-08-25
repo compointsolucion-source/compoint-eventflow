@@ -366,3 +366,74 @@ class EventoViewSet(viewsets.ModelViewSet):
             return Response(cotizar_evento(evento))
         except ValidationError as exc:
             return Response({"detail": str(exc)}, status=400)
+
+    @action(detail=False, methods=["get"], url_path="disponibilidad-fecha")
+    def disponibilidad_fecha(self, request):
+        """Módulo A: resumen de capacidad para una fecha (`?fecha=YYYY-MM-DD`)
+        antes de cotizar un evento nuevo — cuántos eventos ya bloquean esa
+        fecha, y cuánta loza/personal ya está comprometida vs. lo disponible."""
+        from .models import (
+            InventarioEquipo,
+            PersonalEventual,
+            _calcular_cantidades_equipo,
+        )
+        from .services_capacidad import eventos_que_bloquean_fecha
+
+        fecha = request.query_params.get("fecha")
+        if not fecha:
+            return Response({"detail": "Falta el parámetro ?fecha=YYYY-MM-DD."}, status=400)
+
+        eventos_dia = Evento.objects.filter(fecha=fecha).select_related("cliente", "sede")
+        empresa_id = eventos_dia.first().empresa_id if eventos_dia.exists() else None
+        bloquean = eventos_que_bloquean_fecha(empresa_id, fecha) if empresa_id else []
+        ids_bloquean = {e.id for e in bloquean}
+
+        total_equipo = {}
+        for evento in bloquean:
+            for articulo_id, cantidad in _calcular_cantidades_equipo(evento).items():
+                total_equipo[articulo_id] = total_equipo.get(articulo_id, 0) + cantidad
+        loza = [
+            {
+                "articulo": articulo.nombre,
+                "requerido": total_equipo.get(articulo.id, 0),
+                "disponible": articulo.stock_disponible,
+                "saturado": total_equipo.get(articulo.id, 0) > articulo.stock_disponible,
+            }
+            for articulo in InventarioEquipo.objects.filter(id__in=total_equipo.keys())
+        ]
+
+        total_personal = {}
+        for evento in bloquean:
+            for vacante in evento.vacantes.all():
+                total_personal[vacante.rol] = total_personal.get(vacante.rol, 0) + vacante.cantidad_requerida
+        personal = [
+            {
+                "rol": rol,
+                "requerido": requerido,
+                "disponible": PersonalEventual.objects.filter(
+                    empresa_id=empresa_id, rol_principal=rol, activo=True
+                ).count(),
+            }
+            for rol, requerido in total_personal.items()
+        ]
+        for linea in personal:
+            linea["saturado"] = linea["requerido"] > linea["disponible"]
+
+        return Response(
+            {
+                "fecha": fecha,
+                "eventos": [
+                    {
+                        "id": e.id,
+                        "nombre_evento": e.nombre_evento,
+                        "estado_semaforo": e.estado_semaforo,
+                        "numero_invitados": e.numero_invitados,
+                        "vencido": e.vencido,
+                        "bloquea_fecha": e.id in ids_bloquean,
+                    }
+                    for e in eventos_dia
+                ],
+                "loza": loza,
+                "personal": personal,
+            }
+        )

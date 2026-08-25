@@ -61,6 +61,7 @@ class EventoAdmin(admin.ModelAdmin):
         "nombre_evento",
         "fecha",
         "estado_semaforo",
+        "vencido_display",
         "tipo_cliente",
         "numero_invitados",
         "sede",
@@ -68,12 +69,16 @@ class EventoAdmin(admin.ModelAdmin):
     )
     list_filter = ("estado_semaforo", "tipo_cliente", "empresa", "sede")
     search_fields = ("nombre_evento", "cliente__nombre")
-    readonly_fields = ("link_planner_copiable",)
+    readonly_fields = ("link_planner_copiable", "vencido_display")
     inlines = [DetalleMenuEventoInline, PruebaMenuInline]
 
     @admin.display(description="Link del Portal del Event Planner (cópialo y mándalo por WhatsApp/correo)")
     def link_planner_copiable(self, obj):
         return obj.link_planner
+
+    @admin.display(description="¿Vencido? (Módulo A)", boolean=True)
+    def vencido_display(self, obj):
+        return obj.vencido
 
 
 @admin.register(Insumo)

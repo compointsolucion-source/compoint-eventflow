@@ -2,7 +2,9 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework.authtoken.models import Token
 
@@ -466,3 +468,220 @@ class AutenticacionYRolesTestCase(TestCase):
     def test_portal_planner_con_token_invalido_da_404(self):
         respuesta = self.client.get("/api/planner/token-que-no-existe/")
         self.assertEqual(respuesta.status_code, 404)
+
+
+class SemaforoVencimientoAutomaticoTestCase(TestCase):
+    """Módulo A: un Prospecto vence solo a las 72 horas y un Apartado libera
+    la fecha si no llega el anticipo en 5 días hábiles, sin depender de
+    ningún cron/scheduler (se calcula al vuelo, ver `Evento.vencido`)."""
+
+    def setUp(self):
+        self.empresa = EmpresaBanquetera.objects.create(nombre_comercial="Banquetes Demo")
+        self.cliente = Cliente.objects.create(
+            empresa=self.empresa, nombre="Cliente Demo", telefono="555-0001",
+        )
+        self.sede = SedeEvento.objects.create(
+            empresa=self.empresa, nombre="Jardín Demo", direccion="Calle 1",
+        )
+
+    def _crear_evento(self, **overrides):
+        datos = dict(
+            empresa=self.empresa, nombre_evento="Evento Demo",
+            fecha=date.today() + timedelta(days=30), numero_invitados=50,
+            tipo_cliente=Evento.TipoCliente.DIRECTO,
+            cliente=self.cliente, sede=self.sede,
+        )
+        datos.update(overrides)
+        return Evento.objects.create(**datos)
+
+    def test_prospecto_nuevo_obtiene_vencimiento_automatico_72h(self):
+        evento = self._crear_evento(estado_semaforo=Evento.EstadoSemaforo.PROSPECTO)
+        self.assertIsNotNone(evento.fecha_vencimiento_prospecto)
+        diferencia = evento.fecha_vencimiento_prospecto - timezone.now()
+        # Tolerancia de un minuto por el tiempo que tarda en correr el test.
+        self.assertAlmostEqual(diferencia.total_seconds(), 72 * 3600, delta=60)
+
+    def test_prospecto_no_vencido_antes_de_72h(self):
+        evento = self._crear_evento(estado_semaforo=Evento.EstadoSemaforo.PROSPECTO)
+        self.assertFalse(evento.vencido)
+        self.assertFalse(evento.bloquea_fecha)
+
+    def test_prospecto_vencido_despues_de_72h(self):
+        evento = self._crear_evento(
+            estado_semaforo=Evento.EstadoSemaforo.PROSPECTO,
+            fecha_vencimiento_prospecto=timezone.now() - timedelta(hours=1),
+        )
+        self.assertTrue(evento.vencido)
+        self.assertFalse(evento.bloquea_fecha)
+
+    def test_prospecto_nunca_bloquea_fecha_aunque_no_este_vencido(self):
+        evento = self._crear_evento(estado_semaforo=Evento.EstadoSemaforo.PROSPECTO)
+        self.assertFalse(evento.bloquea_fecha)
+
+    def test_apartado_nuevo_obtiene_fecha_limite_automatica(self):
+        evento = self._crear_evento(estado_semaforo=Evento.EstadoSemaforo.APARTADO)
+        self.assertIsNotNone(evento.fecha_limite_anticipo)
+        self.assertGreater(evento.fecha_limite_anticipo, timezone.localdate())
+
+    def test_apartado_vencido_si_paso_fecha_limite_sin_anticipo(self):
+        evento = self._crear_evento(
+            estado_semaforo=Evento.EstadoSemaforo.APARTADO,
+            fecha_limite_anticipo=timezone.localdate() - timedelta(days=1),
+        )
+        self.assertTrue(evento.vencido)
+        self.assertFalse(evento.bloquea_fecha)
+
+    def test_apartado_no_vencido_si_ya_registro_anticipo(self):
+        evento = self._crear_evento(
+            estado_semaforo=Evento.EstadoSemaforo.APARTADO,
+            fecha_limite_anticipo=timezone.localdate() - timedelta(days=1),
+            fecha_registro_anticipo=timezone.now(),
+        )
+        self.assertFalse(evento.vencido)
+        self.assertTrue(evento.bloquea_fecha)
+
+    def test_confirmado_siempre_bloquea_fecha(self):
+        evento = self._crear_evento(estado_semaforo=Evento.EstadoSemaforo.CONFIRMADO)
+        self.assertFalse(evento.vencido)
+        self.assertTrue(evento.bloquea_fecha)
+
+    def test_evento_no_puede_exceder_capacidad_de_sede(self):
+        sede_chica = SedeEvento.objects.create(
+            empresa=self.empresa, nombre="Salón Chico", direccion="Calle 2",
+            capacidad_maxima_invitados=100,
+        )
+        evento = Evento(
+            empresa=self.empresa, nombre_evento="Fiesta Grande",
+            fecha=date.today() + timedelta(days=10), numero_invitados=150,
+            tipo_cliente=Evento.TipoCliente.DIRECTO,
+            cliente=self.cliente, sede=sede_chica,
+        )
+        with self.assertRaises(ValidationError):
+            evento.full_clean()
+
+    def test_evento_dentro_de_capacidad_de_sede_no_lanza_error(self):
+        sede_chica = SedeEvento.objects.create(
+            empresa=self.empresa, nombre="Salón Chico 2", direccion="Calle 3",
+            capacidad_maxima_invitados=100,
+        )
+        evento = Evento(
+            empresa=self.empresa, nombre_evento="Fiesta Mediana",
+            fecha=date.today() + timedelta(days=10), numero_invitados=80,
+            tipo_cliente=Evento.TipoCliente.DIRECTO,
+            cliente=self.cliente, sede=sede_chica,
+        )
+        evento.full_clean()  # No debe lanzar.
+
+
+class BloqueoCapacidadFechaTestCase(TestCase):
+    """Módulo A: bloqueo automático de una fecha cuando la loza o el
+    personal ya están saturados entre los eventos que la ocupan, con
+    posibilidad de que el administrador lo autorice a mano."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.empresa = EmpresaBanquetera.objects.create(nombre_comercial="Banquetes Demo")
+        self.cliente = Cliente.objects.create(
+            empresa=self.empresa, nombre="Cliente Demo", telefono="555-0001",
+        )
+        self.sede = SedeEvento.objects.create(
+            empresa=self.empresa, nombre="Jardín Demo", direccion="Calle 1",
+        )
+        User = get_user_model()
+        usuario = User.objects.create_user(username="ana", password="clave-segura-123")
+        token = Token.objects.create(user=usuario)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        self.fecha_compartida = date.today() + timedelta(days=30)
+
+        self.plato_hondo = InventarioEquipo.objects.create(
+            empresa=self.empresa, nombre="Plato hondo entrada",
+            tipo=InventarioEquipo.TipoEquipo.VAJILLA, stock_disponible=10,
+        )
+        RequerimientoEquipoTiempo.objects.create(
+            empresa=self.empresa, tiempo_menu=TiempoMenu.ENTRADA,
+            articulo=self.plato_hondo, cantidad_por_invitado=Decimal("1"),
+        )
+        self.receta_entrada = RecetaMaestra.objects.create(
+            empresa=self.empresa, nombre="Ensalada", tiempo_menu=TiempoMenu.ENTRADA,
+            porciones_base=1, costo_estimado=Decimal("10.00"),
+        )
+
+        # Evento A ya confirmado: ya usa 8 platos hondos y 2 meseros ese día.
+        self.evento_a = Evento.objects.create(
+            empresa=self.empresa, nombre_evento="Boda A", fecha=self.fecha_compartida,
+            numero_invitados=8, estado_semaforo=Evento.EstadoSemaforo.CONFIRMADO,
+            tipo_cliente=Evento.TipoCliente.DIRECTO, cliente=self.cliente, sede=self.sede,
+        )
+        DetalleMenuEvento.objects.create(evento=self.evento_a, receta=self.receta_entrada)
+        VacanteEvento.objects.create(
+            evento=self.evento_a, rol=PersonalEventual.Rol.MESERO,
+            cantidad_requerida=2, tarifa_por_turno=Decimal("300.00"),
+        )
+
+        # Solo 2 meseros activos en toda la bolsa de trabajo.
+        PersonalEventual.objects.create(
+            empresa=self.empresa, nombre="Mesero Uno", telefono="555-1001",
+            rol_principal=PersonalEventual.Rol.MESERO,
+        )
+        PersonalEventual.objects.create(
+            empresa=self.empresa, nombre="Mesero Dos", telefono="555-1002",
+            rol_principal=PersonalEventual.Rol.MESERO,
+        )
+
+        # Evento B: mismo día, también confirmado, todavía sin menú ni vacantes.
+        self.evento_b = Evento.objects.create(
+            empresa=self.empresa, nombre_evento="Boda B", fecha=self.fecha_compartida,
+            numero_invitados=5, estado_semaforo=Evento.EstadoSemaforo.CONFIRMADO,
+            tipo_cliente=Evento.TipoCliente.DIRECTO, cliente=self.cliente, sede=self.sede,
+        )
+
+    def test_bloquea_agregar_menu_si_satura_la_loza_del_dia(self):
+        # A (8) + B (5) = 13 platos hondos, pero solo hay 10 en bodega.
+        respuesta = self.client.post(
+            "/api/detalle-menu-evento/",
+            {"evento": self.evento_b.id, "receta": self.receta_entrada.id},
+        )
+        self.assertEqual(respuesta.status_code, 400)
+
+    def test_permite_agregar_menu_si_administrador_ya_autorizo(self):
+        self.evento_b.autorizado_proveedor_externo = True
+        self.evento_b.save()
+        respuesta = self.client.post(
+            "/api/detalle-menu-evento/",
+            {"evento": self.evento_b.id, "receta": self.receta_entrada.id},
+        )
+        self.assertEqual(respuesta.status_code, 201)
+
+    def test_bloquea_vacante_si_satura_el_personal_del_dia(self):
+        # A (2 meseros) + B (1 mesero) = 3, pero solo hay 2 meseros activos.
+        respuesta = self.client.post(
+            "/api/vacantes/",
+            {
+                "evento": self.evento_b.id, "rol": PersonalEventual.Rol.MESERO,
+                "cantidad_requerida": 1, "tarifa_por_turno": "300.00",
+            },
+        )
+        self.assertEqual(respuesta.status_code, 400)
+
+    def test_permite_vacante_si_administrador_ya_autorizo(self):
+        self.evento_b.autorizado_proveedor_externo = True
+        self.evento_b.save()
+        respuesta = self.client.post(
+            "/api/vacantes/",
+            {
+                "evento": self.evento_b.id, "rol": PersonalEventual.Rol.MESERO,
+                "cantidad_requerida": 1, "tarifa_por_turno": "300.00",
+            },
+        )
+        self.assertEqual(respuesta.status_code, 201)
+
+    def test_no_bloquea_si_la_loza_alcanza(self):
+        # Bajamos los invitados de B para que 8 + 2 = 10 sí quepa en bodega.
+        self.evento_b.numero_invitados = 2
+        self.evento_b.save()
+        respuesta = self.client.post(
+            "/api/detalle-menu-evento/",
+            {"evento": self.evento_b.id, "receta": self.receta_entrada.id},
+        )
+        self.assertEqual(respuesta.status_code, 201)
