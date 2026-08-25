@@ -1,3 +1,4 @@
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
@@ -12,6 +13,7 @@ from .views import (
     RecetaMaestraViewSet,
     RegistroRoturasViewSet,
     SedeEventoViewSet,
+    estado_servidor,
 )
 
 router = DefaultRouter()
@@ -27,4 +29,6 @@ router.register("pruebas-menu", PruebaMenuViewSet)
 router.register("inventario-equipo", InventarioEquipoViewSet)
 router.register("registros-roturas", RegistroRoturasViewSet)
 
-urlpatterns = router.urls
+urlpatterns = router.urls + [
+    path("estado/", estado_servidor, name="estado-servidor"),
+]

@@ -75,10 +75,21 @@ MIDDLEWARE = [
 # CORS: en desarrollo permitimos el front de Vite (localhost:5173). En
 # producción agrega la URL del static site de Render (ej. el frontend)
 # vía DJANGO_CORS_ALLOWED_ORIGINS.
-CORS_ALLOWED_ORIGINS = os.environ.get(
-    "DJANGO_CORS_ALLOWED_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173",
-).split(",")
+#
+# Se limpia cada origen (espacios y "/" final) porque Django exige una
+# coincidencia EXACTA: "https://mi-front.onrender.com/" (con slash) o
+# " https://mi-front.onrender.com" (con espacio, típico al pegar varios
+# valores separados por coma) NO calzan con el Origin real que manda el
+# navegador, y el bloqueo resultante es indistinguible de no haber puesto
+# la variable de entorno.
+CORS_ALLOWED_ORIGINS = [
+    origin.strip().rstrip("/")
+    for origin in os.environ.get(
+        "DJANGO_CORS_ALLOWED_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173",
+    ).split(",")
+    if origin.strip()
+]
 
 REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",

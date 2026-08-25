@@ -1,5 +1,7 @@
+from django.conf import settings
 from rest_framework import viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from food_cost.services import costo_total_evento, explosion_insumos_evento
@@ -32,6 +34,26 @@ from .serializers import (
     RegistroRoturasSerializer,
     SedeEventoSerializer,
 )
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def estado_servidor(request):
+    """Endpoint de diagnóstico (sin datos sensibles): permite confirmar desde
+    fuera del navegador -y por lo tanto sin que las reglas de CORS lo bloqueen-
+    qué configuración quedó realmente activa en el backend desplegado. Útil
+    para verificar que una variable de entorno (ej. DJANGO_CORS_ALLOWED_ORIGINS)
+    se guardó y que el servicio reinició con el valor nuevo, sin depender de
+    capturas de pantalla del panel de Render."""
+    engine = settings.DATABASES["default"]["ENGINE"]
+    return Response(
+        {
+            "debug": settings.DEBUG,
+            "cors_allowed_origins": settings.CORS_ALLOWED_ORIGINS,
+            "allowed_hosts": settings.ALLOWED_HOSTS,
+            "base_de_datos": "postgresql" if "postgresql" in engine else "sqlite3",
+        }
+    )
 
 
 class EmpresaBanqueteraViewSet(viewsets.ModelViewSet):
