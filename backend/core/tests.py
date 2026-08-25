@@ -1,7 +1,10 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
+from rest_framework.test import APIClient
+from rest_framework.authtoken.models import Token
 
 from core.models import (
     CheckIn,
@@ -400,3 +403,66 @@ class RegistroRoturasTestCase(TestCase):
             costo_reposicion=Decimal("1.00"),
         )
         self.assertEqual(rotura.costo_reposicion, Decimal("90.00"))
+
+
+class AutenticacionYRolesTestCase(TestCase):
+    """Verifica el Módulo A de autenticación: la API requiere login para el
+    equipo interno, y el Event Planner entra sin cuenta vía su link único
+    (`token_planner`) sin ver costos ni otros eventos."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.empresa = EmpresaBanquetera.objects.create(nombre_comercial="Banquetes Demo")
+        self.cliente = Cliente.objects.create(
+            empresa=self.empresa, nombre="Cliente Demo", telefono="555-0001",
+        )
+        self.sede = SedeEvento.objects.create(
+            empresa=self.empresa, nombre="Jardín Demo", direccion="Calle 1",
+        )
+        self.evento = Evento.objects.create(
+            empresa=self.empresa, nombre_evento="Boda Demo",
+            fecha=date.today() + timedelta(days=30), numero_invitados=100,
+            tipo_cliente=Evento.TipoCliente.PLANNER,
+            cliente=self.cliente, sede=self.sede,
+        )
+        User = get_user_model()
+        self.usuario = User.objects.create_user(username="ana", password="clave-segura-123")
+
+    def test_endpoint_protegido_rechaza_sin_token(self):
+        respuesta = self.client.get("/api/eventos/")
+        self.assertEqual(respuesta.status_code, 401)
+
+    def test_login_con_credenciales_correctas_da_token(self):
+        respuesta = self.client.post(
+            "/api/auth/login/", {"username": "ana", "password": "clave-segura-123"},
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.data["username"], "ana")
+        token_en_bd = Token.objects.get(user=self.usuario)
+        self.assertEqual(respuesta.data["token"], token_en_bd.key)
+
+    def test_login_con_credenciales_incorrectas_falla(self):
+        respuesta = self.client.post(
+            "/api/auth/login/", {"username": "ana", "password": "clave-equivocada"},
+        )
+        self.assertEqual(respuesta.status_code, 401)
+
+    def test_endpoint_protegido_acepta_con_token_valido(self):
+        token = Token.objects.create(user=self.usuario)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+        respuesta = self.client.get("/api/eventos/")
+        self.assertEqual(respuesta.status_code, 200)
+
+    def test_portal_planner_con_token_valido_no_requiere_login(self):
+        # Sin credenciales de ningún tipo: el link del planner debe
+        # funcionar solo, sin Authorization header.
+        respuesta = self.client.get(f"/api/planner/{self.evento.token_planner}/")
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.data["nombre_evento"], "Boda Demo")
+        # Nunca debe traer costos/márgenes ni datos internos.
+        self.assertNotIn("empresa", respuesta.data)
+        self.assertNotIn("costo_estimado", str(respuesta.data))
+
+    def test_portal_planner_con_token_invalido_da_404(self):
+        respuesta = self.client.get("/api/planner/token-que-no-existe/")
+        self.assertEqual(respuesta.status_code, 404)

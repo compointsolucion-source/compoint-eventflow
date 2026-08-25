@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # Terceros
     "rest_framework",
+    "rest_framework.authtoken",
     "corsheaders",
     # Apps del proyecto COMPOINT EventFlow
     "core",
@@ -94,7 +95,23 @@ CORS_ALLOWED_ORIGINS = [
 REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 50,
+    # Autenticación y roles: a partir de aquí la API completa requiere estar
+    # logueado por default (ver core/views.py e IsAuthenticated). Las pocas
+    # excepciones públicas (login, estado, inicializar, y el portal del Event
+    # Planner por token) se marcan explícitamente con AllowAny en su vista.
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.TokenAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
 }
+
+# URL pública del frontend (Static Site de Render), solo para poder armar en
+# el admin el link completo del "Portal del Event Planner" que se le manda
+# al cliente (ej. por WhatsApp). No afecta CORS ni la API en sí.
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 
 ROOT_URLCONF = "eventflow.urls"
 

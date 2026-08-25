@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API_BASE } from "./api.js";
+import { API_BASE, authFetch } from "./api.js";
 
 /**
  * Vista de Personal Eventual (Módulo E): Bolsa de Trabajo y Check-In.
@@ -128,10 +128,10 @@ export default function Personal() {
   useEffect(() => {
     let cancelado = false;
     Promise.all([
-      fetch(`${API_BASE}/personal-eventual/`).then((res) =>
+      authFetch(`${API_BASE}/personal-eventual/`).then((res) =>
         res.ok ? res.json() : Promise.reject(res.status)
       ),
-      fetch(`${API_BASE}/vacantes/`).then((res) =>
+      authFetch(`${API_BASE}/vacantes/`).then((res) =>
         res.ok ? res.json() : Promise.reject(res.status)
       ),
     ])
@@ -168,7 +168,7 @@ export default function Personal() {
 
   function cambiarEstadoPostulacion(vacanteId, post, nuevoEstado) {
     setPostulacionOcupada(post.id);
-    fetch(`${API_BASE}/postulaciones/${post.id}/`, {
+    authFetch(`${API_BASE}/postulaciones/${post.id}/`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ estado: nuevoEstado }),
@@ -181,7 +181,7 @@ export default function Personal() {
 
   function confirmarCheckin(vacanteId, post, confirmadoPor) {
     setPostulacionOcupada(post.id);
-    fetch(`${API_BASE}/postulaciones/${post.id}/confirmar-checkin/`, {
+    authFetch(`${API_BASE}/postulaciones/${post.id}/confirmar-checkin/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ confirmado_por: confirmadoPor }),

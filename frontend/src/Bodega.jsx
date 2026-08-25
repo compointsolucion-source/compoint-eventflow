@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API_BASE } from "./api.js";
+import { API_BASE, authFetch } from "./api.js";
 
 /**
  * Vista de Bodega e Inventario (Módulo D). Muestra:
@@ -113,13 +113,13 @@ export default function Bodega() {
 
   function cargarDatos() {
     return Promise.all([
-      fetch(`${API_BASE}/inventario-equipo/`).then((res) =>
+      authFetch(`${API_BASE}/inventario-equipo/`).then((res) =>
         res.ok ? res.json() : Promise.reject(res.status)
       ),
-      fetch(`${API_BASE}/listas-carga/`).then((res) =>
+      authFetch(`${API_BASE}/listas-carga/`).then((res) =>
         res.ok ? res.json() : Promise.reject(res.status)
       ),
-      fetch(`${API_BASE}/registros-roturas/`).then((res) =>
+      authFetch(`${API_BASE}/registros-roturas/`).then((res) =>
         res.ok ? res.json() : Promise.reject(res.status)
       ),
     ]).then(([inv, lc, rot]) => {
@@ -148,7 +148,7 @@ export default function Bodega() {
 
   function toggleSurtido(detalle) {
     setActualizandoDetalleId(detalle.id);
-    fetch(`${API_BASE}/detalle-lista-carga/${detalle.id}/`, {
+    authFetch(`${API_BASE}/detalle-lista-carga/${detalle.id}/`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ surtido: !detalle.surtido }),
@@ -172,7 +172,7 @@ export default function Bodega() {
 
   function marcarConteoCompletado(lista) {
     setActualizandoListaId(lista.id);
-    fetch(`${API_BASE}/listas-carga/${lista.id}/`, {
+    authFetch(`${API_BASE}/listas-carga/${lista.id}/`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conteo_retorno_completado: true }),
@@ -191,7 +191,7 @@ export default function Bodega() {
 
   function registrarRotura(lista, datos) {
     setGuardandoRoturaId(lista.id);
-    return fetch(`${API_BASE}/registros-roturas/`, {
+    return authFetch(`${API_BASE}/registros-roturas/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(datos),

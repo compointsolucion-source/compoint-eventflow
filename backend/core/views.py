@@ -2,13 +2,16 @@ import os
 from io import StringIO
 
 from django.conf import settings
-from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate, get_user_model
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
+from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
+from rest_framework.authtoken.models import Token
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from food_cost.services import costo_total_evento, cotizar_evento, explosion_insumos_evento
 
@@ -44,6 +47,7 @@ from .serializers import (
     DetalleMenuEventoSerializer,
     EmpresaBanqueteraSerializer,
     EsquemaPagoEventoSerializer,
+    EventoPlannerDetalleSerializer,
     EventoPlannerSerializer,
     EventoSerializer,
     IngredienteRecetaSerializer,
@@ -126,6 +130,40 @@ def inicializar_produccion(request):
         )
 
     return Response(resultado)
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def login_view(request):
+    """Login del equipo interno de la banquetera (Módulo A: autenticación y
+    roles). Recibe usuario y contraseña, regresa un token que el frontend
+    guarda y manda en cada petición como `Authorization: Token <token>`.
+
+    No hay registro público: las cuentas del equipo se crean desde
+    `/admin/` (sección Usuarios) o con `manage.py createsuperuser`. El
+    Event Planner NO usa este login — entra por su link único de
+    `PlannerEventoView`, sin cuenta ni contraseña."""
+    username = request.data.get("username", "")
+    password = request.data.get("password", "")
+    user = authenticate(request, username=username, password=password)
+    if user is None or not user.is_active:
+        return Response({"detail": "Usuario o contraseña incorrectos."}, status=401)
+    token, _creado = Token.objects.get_or_create(user=user)
+    return Response({"token": token.key, "username": user.username})
+
+
+class PlannerEventoView(APIView):
+    """Portal del Event Planner (Módulo A): acceso de solo lectura a UN
+    evento mediante su link único (`Evento.token_planner`), sin necesitar
+    cuenta ni contraseña del equipo interno. El serializer usado
+    (`EventoPlannerDetalleSerializer`) nunca incluye costos, márgenes,
+    cotización ni datos de otros eventos de la banquetera."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, token):
+        evento = get_object_or_404(Evento, token_planner=token)
+        return Response(EventoPlannerDetalleSerializer(evento).data)
 
 
 class EmpresaBanqueteraViewSet(viewsets.ModelViewSet):

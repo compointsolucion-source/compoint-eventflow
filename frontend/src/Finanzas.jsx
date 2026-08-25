@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API_BASE } from "./api.js";
+import { API_BASE, authFetch } from "./api.js";
 
 /**
  * Vista de Finanzas (Módulo F): Cotizador por Volumen y Esquema de Cobro
@@ -100,13 +100,13 @@ export default function Finanzas() {
   useEffect(() => {
     let cancelado = false;
     Promise.all([
-      fetch(`${API_BASE}/configuracion-cotizador/`).then((res) =>
+      authFetch(`${API_BASE}/configuracion-cotizador/`).then((res) =>
         res.ok ? res.json() : Promise.reject(res.status)
       ),
-      fetch(`${API_BASE}/esquemas-pago/`).then((res) =>
+      authFetch(`${API_BASE}/esquemas-pago/`).then((res) =>
         res.ok ? res.json() : Promise.reject(res.status)
       ),
-      fetch(`${API_BASE}/eventos/`).then((res) =>
+      authFetch(`${API_BASE}/eventos/`).then((res) =>
         res.ok ? res.json() : Promise.reject(res.status)
       ),
     ])
@@ -137,7 +137,7 @@ export default function Finanzas() {
     let cancelado = false;
     Promise.all(
       eventos.map((ev) =>
-        fetch(`${API_BASE}/eventos/${ev.id}/cotizacion/`)
+        authFetch(`${API_BASE}/eventos/${ev.id}/cotizacion/`)
           .then((res) => (res.ok ? res.json() : null))
           .then((data) => [ev.id, data])
           .catch(() => [ev.id, null])
@@ -153,7 +153,7 @@ export default function Finanzas() {
 
   function marcarAbonoPagado(abono) {
     setAbonoOcupado(abono.id);
-    fetch(`${API_BASE}/abonos/${abono.id}/marcar-pagado/`, { method: "POST" })
+    authFetch(`${API_BASE}/abonos/${abono.id}/marcar-pagado/`, { method: "POST" })
       .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
       .then((actualizado) => {
         setEsquemas((prev) =>

@@ -16,6 +16,7 @@ from .views import (
     InventarioEquipoViewSet,
     ListaCargaEventoViewSet,
     PersonalEventualViewSet,
+    PlannerEventoView,
     PostulacionViewSet,
     PruebaMenuViewSet,
     RecetaMaestraViewSet,
@@ -25,6 +26,7 @@ from .views import (
     VacanteEventoViewSet,
     estado_servidor,
     inicializar_produccion,
+    login_view,
 )
 
 router = DefaultRouter()
@@ -53,4 +55,6 @@ router.register("abonos", AbonoEventoViewSet)
 urlpatterns = router.urls + [
     path("estado/", estado_servidor, name="estado-servidor"),
     path("inicializar/", inicializar_produccion, name="inicializar-produccion"),
+    path("auth/login/", login_view, name="login"),
+    path("planner/<str:token>/", PlannerEventoView.as_view(), name="planner-evento"),
 ]

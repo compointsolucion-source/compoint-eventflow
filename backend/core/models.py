@@ -12,6 +12,7 @@ datos (clientes, recetas, inventario, eventos, etc.).
 """
 
 import math
+import secrets
 import uuid
 from datetime import timedelta
 from decimal import ROUND_CEILING, Decimal
@@ -20,6 +21,14 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils import timezone
+
+
+def _generar_token_planner() -> str:
+    """Token largo e impredecible que hace de 'contraseña' del link único
+    del Portal del Event Planner (Módulo A): quien tenga el link ve el
+    cronograma de ESE evento sin necesitar cuenta ni contraseña, y sin ver
+    costos, márgenes ni otros eventos de la banquetera."""
+    return secrets.token_urlsafe(24)
 
 
 class TiempoMenu(models.TextChoices):
@@ -191,6 +200,13 @@ class Evento(models.Model):
         "¿Administrador autorizó renta de equipo externo?", default=False
     )
 
+    # Portal colaborativo del Event Planner (Módulo A): acceso sin cuenta ni
+    # contraseña vía link único (ver `_generar_token_planner` y
+    # `PlannerEventoView` en views.py).
+    token_planner = models.CharField(
+        max_length=64, unique=True, default=_generar_token_planner, editable=False
+    )
+
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
 
@@ -202,6 +218,14 @@ class Evento(models.Model):
 
     def __str__(self):
         return f"{self.nombre_evento} - {self.fecha} ({self.get_estado_semaforo_display()})"
+
+    @property
+    def link_planner(self) -> str:
+        """Link único (sin cuenta ni contraseña) para compartirle a un Event
+        Planner externo, ej. por WhatsApp o correo. Ver `token_planner`."""
+        from django.conf import settings
+
+        return f"{settings.FRONTEND_URL}/planner/{self.token_planner}/"
 
     def clean(self):
         # El planner nunca debe llegar a ver costos/márgenes: se refuerza a

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { API_BASE } from "./api.js";
+import { API_BASE, authFetch, cerrarSesion, getUsername } from "./api.js";
 import Recetario from "./Recetario.jsx";
 import Bodega from "./Bodega.jsx";
 import Personal from "./Personal.jsx";
@@ -157,6 +157,14 @@ function IconFork(props) {
     </svg>
   );
 }
+function IconLogout(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" stroke="currentColor" {...props}>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M16 17l5-5-5-5M21 12H9" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 function KpiCard({ icon: Icon, label, value, hint, tone = "navy" }) {
   const toneStyles = {
@@ -284,14 +292,19 @@ function VistaResumen({ kpis, eventosOrdenados }) {
   );
 }
 
-export default function Dashboard() {
+export default function Dashboard({ onCerrarSesion }) {
   const [eventos, setEventos] = useState(EVENTOS_DEMO);
   const [fuente, setFuente] = useState("demo"); // "demo" | "api-vacio" | "api"
   const [activeNav, setActiveNav] = useState("dashboard");
 
+  function handleCerrarSesion() {
+    cerrarSesion();
+    onCerrarSesion?.();
+  }
+
   useEffect(() => {
     let cancelado = false;
-    fetch(`${API_BASE}/eventos/`)
+    authFetch(`${API_BASE}/eventos/`)
       .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
       .then((data) => {
         if (cancelado) return;
@@ -368,8 +381,21 @@ export default function Dashboard() {
         </div>
 
         <div className="rounded-xl bg-white/5 p-4 text-xs text-slate-400">
-          <p className="font-medium text-slate-200">Banquetes Sincronía</p>
-          <p className="mt-1">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="font-medium text-slate-200">
+              {getUsername() ? `Hola, ${getUsername()}` : "Banquetes Sincronía"}
+            </p>
+            <button
+              type="button"
+              onClick={handleCerrarSesion}
+              title="Cerrar sesión"
+              className="flex items-center gap-1 rounded-lg px-2 py-1 text-slate-400 hover:bg-white/10 hover:text-white"
+            >
+              <IconLogout className="h-3.5 w-3.5" />
+              Salir
+            </button>
+          </div>
+          <p>
             Datos:{" "}
             <span
               className={

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API_BASE } from "./api.js";
+import { API_BASE, authFetch } from "./api.js";
 
 /**
  * Vista de Recetario / Food Cost. Trae el recetario maestro real del backend
@@ -30,7 +30,7 @@ export default function Recetario() {
 
   useEffect(() => {
     let cancelado = false;
-    fetch(`${API_BASE}/recetas/`)
+    authFetch(`${API_BASE}/recetas/`)
       .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
       .then((data) => {
         if (cancelado) return;

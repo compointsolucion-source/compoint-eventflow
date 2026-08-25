@@ -68,7 +68,12 @@ class EventoAdmin(admin.ModelAdmin):
     )
     list_filter = ("estado_semaforo", "tipo_cliente", "empresa", "sede")
     search_fields = ("nombre_evento", "cliente__nombre")
+    readonly_fields = ("link_planner_copiable",)
     inlines = [DetalleMenuEventoInline, PruebaMenuInline]
+
+    @admin.display(description="Link del Portal del Event Planner (cópialo y mándalo por WhatsApp/correo)")
+    def link_planner_copiable(self, obj):
+        return obj.link_planner
 
 
 @admin.register(Insumo)

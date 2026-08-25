@@ -105,6 +105,17 @@ class PruebaMenuSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class PruebaMenuPlannerSerializer(serializers.ModelSerializer):
+    """Variante restringida para el Portal del Event Planner: sin
+    `cobro_adicional_generado` (dato financiero)."""
+
+    excede_limite_cortesia = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = PruebaMenu
+        fields = ["id", "fecha_prueba", "asistentes", "notas_chef", "aprobado", "excede_limite_cortesia"]
+
+
 class InventarioEquipoSerializer(serializers.ModelSerializer):
     class Meta:
         model = InventarioEquipo
@@ -294,4 +305,40 @@ class EventoPlannerSerializer(serializers.ModelSerializer):
         fields = [
             "id", "nombre_evento", "fecha", "numero_invitados",
             "estado_semaforo", "cliente_nombre", "sede_nombre",
+        ]
+
+
+class DetalleMenuEventoPlannerSerializer(serializers.ModelSerializer):
+    """Un plato del menú de un evento, para el Portal del Event Planner: solo
+    el nombre/tiempo de la receta, sin `costo_estimado`."""
+
+    receta_detalle = RecetaMaestraPlannerSerializer(source="receta", read_only=True)
+
+    class Meta:
+        model = DetalleMenuEvento
+        fields = ["id", "receta_detalle", "notas_personalizacion"]
+
+
+class EventoPlannerDetalleSerializer(serializers.ModelSerializer):
+    """Payload completo del Portal del Event Planner (Módulo A): cronograma
+    de un solo evento, accesible con el link único de `Evento.token_planner`
+    sin necesitar cuenta ni contraseña. Nunca incluye costos, márgenes,
+    cotización ni datos de otros eventos de la banquetera."""
+
+    cliente_nombre = serializers.CharField(source="cliente.nombre", read_only=True)
+    sede_nombre = serializers.CharField(source="sede.nombre", read_only=True)
+    sede_direccion = serializers.CharField(source="sede.direccion", read_only=True)
+    estado_semaforo_display = serializers.CharField(
+        source="get_estado_semaforo_display", read_only=True
+    )
+    detalle_menu = DetalleMenuEventoPlannerSerializer(many=True, read_only=True)
+    pruebas_menu = PruebaMenuPlannerSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Evento
+        fields = [
+            "id", "nombre_evento", "fecha", "numero_invitados",
+            "estado_semaforo", "estado_semaforo_display",
+            "cliente_nombre", "sede_nombre", "sede_direccion",
+            "detalle_menu", "pruebas_menu",
         ]
