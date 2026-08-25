@@ -358,7 +358,7 @@ export default function Dashboard({ onCerrarSesion }) {
       <aside className="flex shrink-0 flex-col justify-between bg-navy-950 px-5 py-6 text-white lg:w-72">
         <div>
           <div className="flex items-center gap-3">
-            <img src={logoIcono} alt="COMPOINT EventFlow" className="h-10 w-10 shrink-0 object-contain" />
+            <img src={logoIcono} alt="COMPOINT EventFlow" className="h-20 w-20 shrink-0 object-contain" />
             <div>
               <p className="text-lg font-semibold leading-tight">COMPOINT</p>
               <p className="-mt-1 text-lg font-semibold leading-tight text-teal-400">EventFlow</p>

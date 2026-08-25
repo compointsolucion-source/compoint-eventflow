@@ -44,7 +44,7 @@ export default function Login({ onIngreso }) {
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-sm">
         <div className="mb-6 flex items-center gap-3">
-          <img src={logoIcono} alt="COMPOINT EventFlow" className="h-10 w-10 shrink-0 object-contain" />
+          <img src={logoIcono} alt="COMPOINT EventFlow" className="h-20 w-20 shrink-0 object-contain" />
           <div>
             <p className="text-lg font-semibold leading-tight text-navy-900">COMPOINT</p>
             <p className="-mt-1 text-lg font-semibold leading-tight text-teal-600">

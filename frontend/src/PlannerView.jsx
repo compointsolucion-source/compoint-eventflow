@@ -100,7 +100,7 @@ export default function PlannerView({ token }) {
     <div className="min-h-screen bg-slate-50 px-4 py-10">
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
         <header className="flex items-center gap-3">
-          <img src={logoIcono} alt="COMPOINT EventFlow" className="h-10 w-10 shrink-0 object-contain" />
+          <img src={logoIcono} alt="COMPOINT EventFlow" className="h-20 w-20 shrink-0 object-contain" />
           <div>
             <p className="text-sm font-semibold leading-tight text-navy-900">COMPOINT</p>
             <p className="-mt-1 text-sm font-semibold leading-tight text-teal-600">
