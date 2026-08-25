@@ -20,7 +20,6 @@ services:
     name: compoint-eventflow-backend
     runtime: python
     rootDir: backend
-    plan: free
     buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate"
     startCommand: "gunicorn eventflow.wsgi:application"
     envVars:
@@ -39,7 +38,6 @@ services:
     name: compoint-eventflow-frontend
     runtime: static
     rootDir: frontend
-    plan: free
     buildCommand: "npm install && npm run build"
     staticPublishPath: dist
     envVars:
