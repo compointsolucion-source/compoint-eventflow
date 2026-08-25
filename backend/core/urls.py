@@ -14,6 +14,7 @@ from .views import (
     RegistroRoturasViewSet,
     SedeEventoViewSet,
     estado_servidor,
+    inicializar_produccion,
 )
 
 router = DefaultRouter()
@@ -31,4 +32,5 @@ router.register("registros-roturas", RegistroRoturasViewSet)
 
 urlpatterns = router.urls + [
     path("estado/", estado_servidor, name="estado-servidor"),
+    path("inicializar/", inicializar_produccion, name="inicializar-produccion"),
 ]

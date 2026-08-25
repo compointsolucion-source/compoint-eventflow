@@ -1,4 +1,9 @@
+import os
+from io import StringIO
+
 from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from rest_framework import viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -54,6 +59,52 @@ def estado_servidor(request):
             "base_de_datos": "postgresql" if "postgresql" in engine else "sqlite3",
         }
     )
+
+
+@api_view(["GET", "POST"])
+@permission_classes([AllowAny])
+def inicializar_produccion(request):
+    """Endpoint protegido de un solo uso: siembra datos de ejemplo y crea el
+    primer superusuario en un despliegue nuevo (ej. Render + Neon) que no
+    tiene acceso a una terminal/shell para correr `manage.py seed_demo` o
+    `manage.py createsuperuser` manualmente.
+
+    Requiere la variable de entorno INIT_SECRET configurada en el servicio;
+    sin ella, el endpoint siempre rechaza la petición. Se llama visitando
+    en el navegador:
+        /api/inicializar/?clave=<valor de INIT_SECRET>
+
+    Es idempotente: `seed_demo` no hace nada si ya hay una empresa creada, y
+    la creación del superusuario se salta si ya existe alguno. Después de
+    usarlo una vez, se recomienda borrar INIT_SECRET del panel de Render
+    para dejar el endpoint inutilizable."""
+    secreto_esperado = os.environ.get("INIT_SECRET")
+    if not secreto_esperado or request.query_params.get("clave") != secreto_esperado:
+        return Response({"detail": "No autorizado."}, status=403)
+
+    resultado = {}
+
+    salida = StringIO()
+    call_command("seed_demo", stdout=salida)
+    resultado["seed_demo"] = salida.getvalue().strip()
+
+    User = get_user_model()
+    if User.objects.filter(is_superuser=True).exists():
+        resultado["superusuario"] = "ya existía un superusuario, no se creó ninguno nuevo."
+    elif not os.environ.get("DJANGO_SUPERUSER_PASSWORD"):
+        resultado["superusuario"] = (
+            "no se creó: falta configurar DJANGO_SUPERUSER_USERNAME, "
+            "DJANGO_SUPERUSER_EMAIL y DJANGO_SUPERUSER_PASSWORD en el "
+            "servicio antes de llamar a este endpoint."
+        )
+    else:
+        call_command("createsuperuser", interactive=False)
+        resultado["superusuario"] = (
+            f"creado: {os.environ.get('DJANGO_SUPERUSER_USERNAME', 'admin')} "
+            "(entra a /admin/ con la contraseña que pusiste en DJANGO_SUPERUSER_PASSWORD)."
+        )
+
+    return Response(resultado)
 
 
 class EmpresaBanqueteraViewSet(viewsets.ModelViewSet):
