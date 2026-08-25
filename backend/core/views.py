@@ -13,19 +13,23 @@ from food_cost.services import costo_total_evento, explosion_insumos_evento
 
 from .models import (
     Cliente,
+    DetalleListaCarga,
     DetalleMenuEvento,
     EmpresaBanquetera,
     Evento,
     IngredienteReceta,
     InventarioEquipo,
     Insumo,
+    ListaCargaEvento,
     PruebaMenu,
     RecetaMaestra,
     RegistroRoturas,
+    RequerimientoEquipoTiempo,
     SedeEvento,
 )
 from .serializers import (
     ClienteSerializer,
+    DetalleListaCargaSerializer,
     DetalleMenuEventoSerializer,
     EmpresaBanqueteraSerializer,
     EventoPlannerSerializer,
@@ -33,10 +37,12 @@ from .serializers import (
     IngredienteRecetaSerializer,
     InsumoSerializer,
     InventarioEquipoSerializer,
+    ListaCargaEventoSerializer,
     PruebaMenuSerializer,
     RecetaMaestraPlannerSerializer,
     RecetaMaestraSerializer,
     RegistroRoturasSerializer,
+    RequerimientoEquipoTiempoSerializer,
     SedeEventoSerializer,
 )
 
@@ -164,6 +170,22 @@ class InventarioEquipoViewSet(viewsets.ModelViewSet):
 class RegistroRoturasViewSet(viewsets.ModelViewSet):
     queryset = RegistroRoturas.objects.all()
     serializer_class = RegistroRoturasSerializer
+
+
+class RequerimientoEquipoTiempoViewSet(viewsets.ModelViewSet):
+    queryset = RequerimientoEquipoTiempo.objects.select_related("articulo").all()
+    serializer_class = RequerimientoEquipoTiempoSerializer
+
+
+class ListaCargaEventoViewSet(viewsets.ModelViewSet):
+    """Módulo D: listas de carga por evento, con el desglose de equipo ya
+    calculado (`cantidad_requerida` y `cantidad_a_cargar` con el +10% de
+    rotura aplicado)."""
+
+    queryset = ListaCargaEvento.objects.select_related("evento").prefetch_related(
+        "detalles__articulo"
+    ).all()
+    serializer_class = ListaCargaEventoSerializer
 
 
 class EventoViewSet(viewsets.ModelViewSet):

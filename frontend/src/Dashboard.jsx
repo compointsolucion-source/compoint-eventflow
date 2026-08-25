@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
+import { API_BASE } from "./api.js";
+import Recetario from "./Recetario.jsx";
+import Bodega from "./Bodega.jsx";
 
 /**
  * Dashboard principal de COMPOINT EventFlow.
  * Implementa el "PROMPT MAESTRO 2" del Plan Maestro: sidebar con logo +
- * slogan, 3 tarjetas KPI, y el componente "Agenda Semáforo".
+ * slogan, 3 tarjetas KPI, y el componente "Agenda Semáforo". El menú
+ * lateral cambia la vista mostrada en el área principal: Recetario y
+ * Bodega ya están construidos con datos reales del backend; Personal
+ * Eventual y Finanzas todavía no tienen modelos de datos (Módulos E y F
+ * del plan maestro), así que muestran un aviso de "en construcción".
  *
  * El componente intenta traer datos reales del backend Django
  * (GET /api/eventos/) y si no está disponible (ej. corriendo solo el
@@ -11,8 +18,6 @@ import { useEffect, useMemo, useState } from "react";
  * demostración simulados con useState, para que la pantalla sea
  * completamente operativa a nivel visual en cualquier escenario.
  */
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
 
 const EVENTOS_DEMO = [
   {
@@ -223,6 +228,76 @@ function EventoRow({ evento }) {
   );
 }
 
+function VistaProximamente({ label }) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-white/60 px-6 py-16 text-center">
+      <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-navy-900/5 text-navy-900">
+        <IconAlert className="h-6 w-6" />
+      </span>
+      <h2 className="text-lg font-semibold text-navy-900">{label} — en construcción</h2>
+      <p className="mt-2 max-w-md text-sm text-slate-500">
+        Este módulo todavía no tiene modelos de datos ni pantalla propia. Cuando quieras,
+        pídeme que lo diseñemos y lo construyo igual que Recetario y Bodega.
+      </p>
+    </div>
+  );
+}
+
+function VistaResumen({ kpis, eventosOrdenados }) {
+  return (
+    <>
+      <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-navy-900">Dashboard</h1>
+          <p className="text-sm text-slate-500">Vista general de operación de hoy</p>
+        </div>
+      </header>
+
+      {/* KPIs */}
+      <section className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <KpiCard
+          icon={IconCheck}
+          label="Eventos Confirmados"
+          value={kpis.confirmados}
+          hint="Anticipo registrado, inventario bloqueado"
+          tone="navy"
+        />
+        <KpiCard
+          icon={IconFork}
+          label="Pruebas de Menú esta Semana"
+          value={kpis.pruebasSemana}
+          hint="Fichas de degustación agendadas"
+          tone="teal"
+        />
+        <KpiCard
+          icon={IconAlert}
+          label="Alerta de Inventario (Límite de Rotura)"
+          value={kpis.alertaInventario ? "Atención" : "Sin alertas"}
+          hint="Factor +10% de rotura sobre loza/cristalería"
+          tone="alert"
+        />
+      </section>
+
+      {/* Agenda Semáforo */}
+      <section className="rounded-2xl bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-navy-900">Agenda Semáforo</h2>
+          <div className="flex items-center gap-3 text-xs text-slate-500">
+            <span className="flex items-center gap-1">🟡 Prospecto</span>
+            <span className="flex items-center gap-1">🟠 Apartado</span>
+            <span className="flex items-center gap-1">🔴 Confirmado</span>
+          </div>
+        </div>
+        <ul className="flex flex-col gap-3">
+          {eventosOrdenados.map((evento) => (
+            <EventoRow key={evento.id} evento={evento} />
+          ))}
+        </ul>
+      </section>
+    </>
+  );
+}
+
 export default function Dashboard() {
   const [eventos, setEventos] = useState(EVENTOS_DEMO);
   const [fuente, setFuente] = useState("demo"); // "demo" | "api-vacio" | "api"
@@ -327,54 +402,13 @@ export default function Dashboard() {
 
       {/* Main */}
       <main className="flex-1 px-6 py-8 lg:px-10">
-        <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold text-navy-900">Dashboard</h1>
-            <p className="text-sm text-slate-500">Vista general de operación de hoy</p>
-          </div>
-        </header>
-
-        {/* KPIs */}
-        <section className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <KpiCard
-            icon={IconCheck}
-            label="Eventos Confirmados"
-            value={kpis.confirmados}
-            hint="Anticipo registrado, inventario bloqueado"
-            tone="navy"
-          />
-          <KpiCard
-            icon={IconFork}
-            label="Pruebas de Menú esta Semana"
-            value={kpis.pruebasSemana}
-            hint="Fichas de degustación agendadas"
-            tone="teal"
-          />
-          <KpiCard
-            icon={IconAlert}
-            label="Alerta de Inventario (Límite de Rotura)"
-            value={kpis.alertaInventario ? "Atención" : "Sin alertas"}
-            hint="Factor +10% de rotura sobre loza/cristalería"
-            tone="alert"
-          />
-        </section>
-
-        {/* Agenda Semáforo */}
-        <section className="rounded-2xl bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-navy-900">Agenda Semáforo</h2>
-            <div className="flex items-center gap-3 text-xs text-slate-500">
-              <span className="flex items-center gap-1">🟡 Prospecto</span>
-              <span className="flex items-center gap-1">🟠 Apartado</span>
-              <span className="flex items-center gap-1">🔴 Confirmado</span>
-            </div>
-          </div>
-          <ul className="flex flex-col gap-3">
-            {eventosOrdenados.map((evento) => (
-              <EventoRow key={evento.id} evento={evento} />
-            ))}
-          </ul>
-        </section>
+        {(activeNav === "dashboard" || activeNav === "agenda") && (
+          <VistaResumen kpis={kpis} eventosOrdenados={eventosOrdenados} />
+        )}
+        {activeNav === "recetario" && <Recetario />}
+        {activeNav === "bodega" && <Bodega />}
+        {activeNav === "staffing" && <VistaProximamente label="Personal Eventual" />}
+        {activeNav === "finanzas" && <VistaProximamente label="Finanzas" />}
       </main>
     </div>
   );

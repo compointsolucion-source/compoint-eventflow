@@ -13,15 +13,18 @@ from rest_framework import serializers
 
 from .models import (
     Cliente,
+    DetalleListaCarga,
     DetalleMenuEvento,
     EmpresaBanquetera,
     Evento,
     IngredienteReceta,
     InventarioEquipo,
     Insumo,
+    ListaCargaEvento,
     PruebaMenu,
     RecetaMaestra,
     RegistroRoturas,
+    RequerimientoEquipoTiempo,
     SedeEvento,
 )
 
@@ -105,6 +108,47 @@ class RegistroRoturasSerializer(serializers.ModelSerializer):
     class Meta:
         model = RegistroRoturas
         fields = "__all__"
+
+
+class RequerimientoEquipoTiempoSerializer(serializers.ModelSerializer):
+    articulo_nombre = serializers.CharField(source="articulo.nombre", read_only=True)
+
+    class Meta:
+        model = RequerimientoEquipoTiempo
+        fields = [
+            "id", "empresa", "tiempo_menu", "articulo", "articulo_nombre",
+            "cantidad_por_invitado",
+        ]
+
+
+class DetalleListaCargaSerializer(serializers.ModelSerializer):
+    """Una línea de la lista de carga (Módulo D): incluye tanto la cantidad
+    requerida para atender a los invitados como `cantidad_a_cargar`, que ya
+    trae aplicado el Factor +10% de Rotura."""
+
+    articulo_nombre = serializers.CharField(source="articulo.nombre", read_only=True)
+    articulo_tipo = serializers.CharField(source="articulo.tipo", read_only=True)
+    cantidad_a_cargar = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = DetalleListaCarga
+        fields = [
+            "id", "lista_carga", "articulo", "articulo_nombre", "articulo_tipo",
+            "cantidad_requerida", "cantidad_a_cargar", "surtido",
+        ]
+
+
+class ListaCargaEventoSerializer(serializers.ModelSerializer):
+    evento_nombre = serializers.CharField(source="evento.nombre_evento", read_only=True)
+    fecha_evento = serializers.DateField(source="evento.fecha", read_only=True)
+    detalles = DetalleListaCargaSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = ListaCargaEvento
+        fields = [
+            "id", "evento", "evento_nombre", "fecha_evento", "generada_en",
+            "actualizada_en", "conteo_retorno_completado", "detalles",
+        ]
 
 
 class EventoSerializer(serializers.ModelSerializer):

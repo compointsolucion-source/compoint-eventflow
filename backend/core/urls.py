@@ -9,9 +9,11 @@ from .views import (
     IngredienteRecetaViewSet,
     InsumoViewSet,
     InventarioEquipoViewSet,
+    ListaCargaEventoViewSet,
     PruebaMenuViewSet,
     RecetaMaestraViewSet,
     RegistroRoturasViewSet,
+    RequerimientoEquipoTiempoViewSet,
     SedeEventoViewSet,
     estado_servidor,
     inicializar_produccion,
@@ -29,6 +31,8 @@ router.register("detalle-menu-evento", DetalleMenuEventoViewSet)
 router.register("pruebas-menu", PruebaMenuViewSet)
 router.register("inventario-equipo", InventarioEquipoViewSet)
 router.register("registros-roturas", RegistroRoturasViewSet)
+router.register("requerimientos-equipo", RequerimientoEquipoTiempoViewSet)
+router.register("listas-carga", ListaCargaEventoViewSet)
 
 urlpatterns = router.urls + [
     path("estado/", estado_servidor, name="estado-servidor"),
