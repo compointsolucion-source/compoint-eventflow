@@ -1,4 +1,5 @@
 import os
+from datetime import date
 from io import StringIO
 
 from django.conf import settings
@@ -213,6 +214,38 @@ class DetalleMenuEventoViewSet(viewsets.ModelViewSet):
 class PruebaMenuViewSet(viewsets.ModelViewSet):
     queryset = PruebaMenu.objects.all()
     serializer_class = PruebaMenuSerializer
+
+    @action(detail=False, methods=["get"], url_path="fechas-disponibles")
+    def fechas_disponibles(self, request):
+        """Módulo B: antes de agendar una prueba de menú, dice si
+        `?fecha=YYYY-MM-DD` está disponible para `?evento=<id>` y, si no,
+        sugiere las próximas fechas libres."""
+        from .services_calendario import fecha_prueba_disponible, sugerir_fechas_disponibles
+
+        evento_id = request.query_params.get("evento")
+        fecha_str = request.query_params.get("fecha")
+        if not evento_id or not fecha_str:
+            return Response(
+                {"detail": "Faltan los parámetros ?evento=<id>&fecha=YYYY-MM-DD."}, status=400
+            )
+        evento = get_object_or_404(Evento, pk=evento_id)
+        try:
+            fecha = date.fromisoformat(fecha_str)
+        except ValueError:
+            return Response({"detail": "La fecha debe tener formato YYYY-MM-DD."}, status=400)
+
+        disponible = fecha_prueba_disponible(evento.empresa_id, fecha)
+        return Response(
+            {
+                "fecha": fecha,
+                "disponible": disponible,
+                "sugerencias": (
+                    []
+                    if disponible
+                    else sugerir_fechas_disponibles(evento.empresa_id, fecha)
+                ),
+            }
+        )
 
 
 class InventarioEquipoViewSet(viewsets.ModelViewSet):

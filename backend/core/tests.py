@@ -8,6 +8,8 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework.authtoken.models import Token
 
+from core.services_calendario import sugerir_fechas_disponibles
+
 from core.models import (
     CheckIn,
     Cliente,
@@ -702,3 +704,94 @@ class BloqueoCapacidadFechaTestCase(TestCase):
             {"evento": self.evento_b.id, "receta": self.receta_entrada.id},
         )
         self.assertEqual(respuesta.status_code, 201)
+
+
+class PruebaMenuBloqueoFechaTestCase(TestCase):
+    """Módulo B: no se debe agendar una prueba de menú en un viernes/sábado
+    que ya esté ocupado por otro evento confirmado/apartado de la misma
+    empresa; entre semana no hay restricción, y se sugieren fechas libres."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.empresa = EmpresaBanquetera.objects.create(nombre_comercial="Banquetes Demo")
+        self.cliente = Cliente.objects.create(
+            empresa=self.empresa, nombre="Cliente Demo", telefono="555-0001",
+        )
+        self.sede = SedeEvento.objects.create(
+            empresa=self.empresa, nombre="Jardín Demo", direccion="Calle 1",
+        )
+        User = get_user_model()
+        usuario = User.objects.create_user(username="ana", password="clave-segura-123")
+        token = Token.objects.create(user=usuario)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        # Buscamos el próximo viernes/martes a partir de hoy (nunca hoy
+        # mismo) para que el test no dependa de qué día se ejecute.
+        hoy = date.today()
+        self.viernes = hoy + timedelta(days=(4 - hoy.weekday()) % 7 or 7)
+        self.martes_libre = hoy + timedelta(days=(1 - hoy.weekday()) % 7 or 7)
+
+        self.evento_ocupado = Evento.objects.create(
+            empresa=self.empresa, nombre_evento="Boda Viernes", fecha=self.viernes,
+            numero_invitados=100, estado_semaforo=Evento.EstadoSemaforo.CONFIRMADO,
+            tipo_cliente=Evento.TipoCliente.DIRECTO, cliente=self.cliente, sede=self.sede,
+        )
+        self.evento_prueba = Evento.objects.create(
+            empresa=self.empresa, nombre_evento="XV Años Prueba",
+            fecha=self.viernes + timedelta(days=90), numero_invitados=50,
+            estado_semaforo=Evento.EstadoSemaforo.CONFIRMADO,
+            tipo_cliente=Evento.TipoCliente.DIRECTO, cliente=self.cliente, sede=self.sede,
+        )
+
+    def test_viernes_libre_es_valido(self):
+        otro_viernes = self.viernes + timedelta(days=7)
+        prueba = PruebaMenu(evento=self.evento_prueba, fecha_prueba=otro_viernes, asistentes=4)
+        prueba.full_clean()  # No debe lanzar.
+
+    def test_viernes_ocupado_por_evento_confirmado_lanza_error(self):
+        prueba = PruebaMenu(evento=self.evento_prueba, fecha_prueba=self.viernes, asistentes=4)
+        with self.assertRaises(ValidationError):
+            prueba.full_clean()
+
+    def test_entre_semana_es_valido_aunque_haya_evento_confirmado_ese_dia(self):
+        # Movemos el evento ocupado a un martes en vez de viernes.
+        self.evento_ocupado.fecha = self.martes_libre
+        self.evento_ocupado.save()
+        prueba = PruebaMenu(evento=self.evento_prueba, fecha_prueba=self.martes_libre, asistentes=4)
+        prueba.full_clean()  # No debe lanzar: entre semana no hay restricción.
+
+    def test_sugerir_fechas_disponibles_evita_el_viernes_ocupado(self):
+        sugerencias = sugerir_fechas_disponibles(self.empresa.id, self.viernes - timedelta(days=1))
+        self.assertNotIn(self.viernes, sugerencias)
+
+    def test_api_bloquea_prueba_en_viernes_ocupado(self):
+        respuesta = self.client.post(
+            "/api/pruebas-menu/",
+            {
+                "evento": self.evento_prueba.id,
+                "fecha_prueba": self.viernes.isoformat(),
+                "asistentes": 4,
+            },
+        )
+        self.assertEqual(respuesta.status_code, 400)
+
+    def test_api_permite_prueba_en_viernes_libre(self):
+        otro_viernes = self.viernes + timedelta(days=7)
+        respuesta = self.client.post(
+            "/api/pruebas-menu/",
+            {
+                "evento": self.evento_prueba.id,
+                "fecha_prueba": otro_viernes.isoformat(),
+                "asistentes": 4,
+            },
+        )
+        self.assertEqual(respuesta.status_code, 201)
+
+    def test_endpoint_fechas_disponibles_sugiere_alternativas(self):
+        respuesta = self.client.get(
+            "/api/pruebas-menu/fechas-disponibles/",
+            {"evento": self.evento_prueba.id, "fecha": self.viernes.isoformat()},
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(respuesta.data["disponible"])
+        self.assertGreater(len(respuesta.data["sugerencias"]), 0)

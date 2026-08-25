@@ -14,6 +14,7 @@ import copy
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
+from .services_calendario import validar_fecha_prueba_menu
 from .services_capacidad import validar_capacidad_equipo, validar_capacidad_personal
 from .models import (
     AbonoEvento,
@@ -116,10 +117,27 @@ class DetalleMenuEventoSerializer(serializers.ModelSerializer):
 
 class PruebaMenuSerializer(serializers.ModelSerializer):
     excede_limite_cortesia = serializers.BooleanField(read_only=True)
+    dia_alta_operacion = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = PruebaMenu
         fields = "__all__"
+
+    def validate(self, attrs):
+        # Módulo B: no agendar una prueba de menú en un viernes/sábado que
+        # ya esté ocupado por otro evento de la misma empresa.
+        evento = attrs.get("evento") or (self.instance.evento if self.instance else None)
+        fecha_prueba = attrs.get(
+            "fecha_prueba", self.instance.fecha_prueba if self.instance else None
+        )
+        if evento and fecha_prueba:
+            try:
+                validar_fecha_prueba_menu(evento.empresa_id, fecha_prueba)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError(
+                    exc.message_dict if hasattr(exc, "message_dict") else {"fecha_prueba": exc.messages}
+                )
+        return attrs
 
 
 class PruebaMenuPlannerSerializer(serializers.ModelSerializer):

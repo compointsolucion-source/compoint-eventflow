@@ -557,6 +557,20 @@ class PruebaMenu(models.Model):
     def excede_limite_cortesia(self) -> bool:
         return self.asistentes > self.LIMITE_CORTESIA_ASISTENTES
 
+    @property
+    def dia_alta_operacion(self) -> bool:
+        """True si `fecha_prueba` cae en viernes o sábado (Módulo B)."""
+        return bool(self.fecha_prueba) and self.fecha_prueba.weekday() in (4, 5)
+
+    def clean(self):
+        # Módulo B: no se debe agendar una prueba de menú en un viernes o
+        # sábado que la empresa ya tenga ocupado con otro evento (ver
+        # `services_calendario.validar_fecha_prueba_menu`).
+        if self.fecha_prueba and self.evento_id:
+            from .services_calendario import validar_fecha_prueba_menu
+
+            validar_fecha_prueba_menu(self.evento.empresa_id, self.fecha_prueba)
+
 
 # ---------------------------------------------------------------------------
 # 9. InventarioEquipo
