@@ -14,6 +14,7 @@ from core.models import (
     ConfiguracionCotizador,
     DetalleMenuEvento,
     EmpresaBanquetera,
+    _sumar_dias_habiles,
     EsquemaPagoEvento,
     Evento,
     InventarioEquipo,
@@ -522,6 +523,22 @@ class SemaforoVencimientoAutomaticoTestCase(TestCase):
         evento = self._crear_evento(estado_semaforo=Evento.EstadoSemaforo.APARTADO)
         self.assertIsNotNone(evento.fecha_limite_anticipo)
         self.assertGreater(evento.fecha_limite_anticipo, timezone.localdate())
+
+    def test_horas_vencimiento_prospecto_es_personalizable_por_empresa(self):
+        # Esta empresa configuró 24 horas en vez del default de 72.
+        self.empresa.horas_vencimiento_prospecto = 24
+        self.empresa.save()
+        evento = self._crear_evento(estado_semaforo=Evento.EstadoSemaforo.PROSPECTO)
+        diferencia = evento.fecha_vencimiento_prospecto - timezone.now()
+        self.assertAlmostEqual(diferencia.total_seconds(), 24 * 3600, delta=60)
+
+    def test_dias_habiles_limite_anticipo_es_personalizable_por_empresa(self):
+        # Esta empresa configuró 10 días hábiles en vez del default de 5.
+        self.empresa.dias_habiles_limite_anticipo = 10
+        self.empresa.save()
+        evento = self._crear_evento(estado_semaforo=Evento.EstadoSemaforo.APARTADO)
+        esperado = _sumar_dias_habiles(timezone.localdate(), 10)
+        self.assertEqual(evento.fecha_limite_anticipo, esperado)
 
     def test_apartado_vencido_si_paso_fecha_limite_sin_anticipo(self):
         evento = self._crear_evento(

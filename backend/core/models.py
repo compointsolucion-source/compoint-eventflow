@@ -84,6 +84,23 @@ class EmpresaBanquetera(models.Model):
     activa = models.BooleanField(default=True)
     fecha_alta = models.DateTimeField(auto_now_add=True)
 
+    # --- Reglas automáticas del Semáforo de Fechas (Módulo A) ---------------
+    # Personalizables por empresa: cada banquetera puede tener sus propios
+    # plazos de vencimiento en vez de los valores por default (72h / 5 días
+    # hábiles). Ver `Evento.save()`, donde se usan estos valores.
+    horas_vencimiento_prospecto = models.PositiveIntegerField(
+        "Horas para que venza un Prospecto sin avanzar",
+        default=72,
+        validators=[MinValueValidator(1)],
+        help_text="Ej. 72 = un Prospecto se marca 'Vencido' solo si en 72 horas no pasa a Apartado o Confirmado.",
+    )
+    dias_habiles_limite_anticipo = models.PositiveIntegerField(
+        "Días hábiles para recibir el anticipo de un Apartado",
+        default=5,
+        validators=[MinValueValidator(1)],
+        help_text="Ej. 5 = un Apartado se marca 'Vencido' y libera la fecha si no llega el anticipo en 5 días hábiles.",
+    )
+
     class Meta:
         verbose_name = "Empresa Banquetera"
         verbose_name_plural = "Empresas Banqueteras"
@@ -210,9 +227,11 @@ class Evento(models.Model):
 
     # --- Campos de apoyo a la lógica de negocio del semáforo ---
     fecha_cotizacion = models.DateTimeField(auto_now_add=True)
-    # Prospecto: vence 72 horas después de cotizado (regla del Módulo A).
+    # Prospecto: vence X horas después de cotizado (regla del Módulo A;
+    # X = `empresa.horas_vencimiento_prospecto`, personalizable, 72 default).
     fecha_vencimiento_prospecto = models.DateTimeField(null=True, blank=True)
-    # Apartado: se reserva inventario por 5 días hábiles en espera de pago.
+    # Apartado: se reserva inventario por X días hábiles en espera de pago
+    # (X = `empresa.dias_habiles_limite_anticipo`, personalizable, 5 default).
     fecha_limite_anticipo = models.DateField(null=True, blank=True)
     fecha_registro_anticipo = models.DateTimeField(null=True, blank=True)
     autorizado_proveedor_externo = models.BooleanField(
@@ -265,8 +284,8 @@ class Evento(models.Model):
 
     @property
     def prospecto_vencido(self) -> bool:
-        """True si este Prospecto ya pasó las 72 horas sin avanzar a
-        Apartado/Confirmado."""
+        """True si este Prospecto ya pasó su plazo (personalizable por
+        empresa, 72 horas por default) sin avanzar a Apartado/Confirmado."""
         return (
             self.estado_semaforo == self.EstadoSemaforo.PROSPECTO
             and self.fecha_vencimiento_prospecto is not None
@@ -304,19 +323,24 @@ class Evento(models.Model):
         )
 
     def save(self, *args, **kwargs):
-        # Al cotizar un Prospecto, se le da automáticamente su plazo de 72
-        # horas (si no se capturó a mano). Al pasar a Apartado, se le da
-        # automáticamente su plazo de 5 días hábiles para el anticipo.
+        # Al cotizar un Prospecto, se le da automáticamente su plazo de
+        # vencimiento (si no se capturó a mano). Al pasar a Apartado, se le
+        # da automáticamente su plazo para el anticipo. Ambos plazos son
+        # personalizables por empresa (ver `EmpresaBanquetera`); si por
+        # alguna razón la empresa no está cargada todavía, se usan los
+        # valores por default de siempre (72 horas / 5 días hábiles).
         if (
             self.estado_semaforo == self.EstadoSemaforo.PROSPECTO
             and self.fecha_vencimiento_prospecto is None
         ):
-            self.fecha_vencimiento_prospecto = timezone.now() + timedelta(hours=72)
+            horas = getattr(self.empresa, "horas_vencimiento_prospecto", 72) if self.empresa_id else 72
+            self.fecha_vencimiento_prospecto = timezone.now() + timedelta(hours=horas)
         if (
             self.estado_semaforo == self.EstadoSemaforo.APARTADO
             and self.fecha_limite_anticipo is None
         ):
-            self.fecha_limite_anticipo = _sumar_dias_habiles(timezone.localdate(), 5)
+            dias = getattr(self.empresa, "dias_habiles_limite_anticipo", 5) if self.empresa_id else 5
+            self.fecha_limite_anticipo = _sumar_dias_habiles(timezone.localdate(), dias)
         super().save(*args, **kwargs)
 
     def clean(self):

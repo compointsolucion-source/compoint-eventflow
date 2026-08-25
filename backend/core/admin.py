@@ -27,7 +27,14 @@ from .models import (
 
 @admin.register(EmpresaBanquetera)
 class EmpresaBanqueteraAdmin(admin.ModelAdmin):
-    list_display = ("nombre_comercial", "email_contacto", "activa", "fecha_alta")
+    list_display = (
+        "nombre_comercial",
+        "email_contacto",
+        "horas_vencimiento_prospecto",
+        "dias_habiles_limite_anticipo",
+        "activa",
+        "fecha_alta",
+    )
     search_fields = ("nombre_comercial", "razon_social", "rfc")
 
 
