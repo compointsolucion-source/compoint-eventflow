@@ -1,0 +1,51 @@
+# Blueprint de Render para COMPOINT EventFlow.
+#
+# Cómo usarlo:
+# 1. Sube este repo a GitHub.
+# 2. En Render: New > Blueprint > selecciona el repo. Render lee este archivo
+#    y crea los servicios automáticamente.
+# 3. Crea la base de datos en Neon (Postgres) y copia su "connection string".
+#    Pégalo como valor de la variable DATABASE_URL en el servicio
+#    "compoint-eventflow-backend" (Render > tu servicio > Environment).
+#    Formato típico de Neon: postgresql://usuario:password@ep-xxx.neon.tech/db?sslmode=require
+# 4. Ajusta VITE_API_BASE_URL en el servicio de frontend con la URL pública
+#    que Render asigne al backend (ej. https://compoint-eventflow-backend.onrender.com/api).
+#
+# No se declara aquí una base de datos "type: pserv/postgres" de Render porque
+# el proyecto usa Neon como proveedor de Postgres, no la base de datos nativa
+# de Render.
+
+services:
+  - type: web
+    name: compoint-eventflow-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate"
+    startCommand: "gunicorn eventflow.wsgi:application"
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "0"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: ".onrender.com"
+      - key: DJANGO_CORS_ALLOWED_ORIGINS
+        sync: false # pon aquí la URL del frontend una vez desplegado
+      - key: DATABASE_URL
+        sync: false # pega aquí el connection string de Neon
+
+  - type: web
+    name: compoint-eventflow-frontend
+    runtime: static
+    rootDir: frontend
+    plan: free
+    buildCommand: "npm install && npm run build"
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false # pon aquí la URL pública del backend + /api
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

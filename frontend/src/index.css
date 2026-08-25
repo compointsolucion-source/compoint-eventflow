@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+/* Paleta de marca COMPOINT EventFlow: Deep Navy + Teal (Prompt Maestro 2) */
+@theme {
+  --color-navy-950: #0a1128;
+  --color-navy-900: #0f1c3f;
+  --color-navy-800: #16294f;
+  --color-navy-700: #1e3564;
+  --color-teal-500: #14b8a6;
+  --color-teal-400: #2dd4bf;
+  --color-teal-300: #5eead4;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+}

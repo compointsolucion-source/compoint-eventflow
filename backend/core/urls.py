@@ -1,0 +1,30 @@
+from rest_framework.routers import DefaultRouter
+
+from .views import (
+    ClienteViewSet,
+    DetalleMenuEventoViewSet,
+    EmpresaBanqueteraViewSet,
+    EventoViewSet,
+    IngredienteRecetaViewSet,
+    InsumoViewSet,
+    InventarioEquipoViewSet,
+    PruebaMenuViewSet,
+    RecetaMaestraViewSet,
+    RegistroRoturasViewSet,
+    SedeEventoViewSet,
+)
+
+router = DefaultRouter()
+router.register("empresas", EmpresaBanqueteraViewSet)
+router.register("clientes", ClienteViewSet)
+router.register("sedes", SedeEventoViewSet)
+router.register("eventos", EventoViewSet)
+router.register("insumos", InsumoViewSet)
+router.register("recetas", RecetaMaestraViewSet)
+router.register("ingredientes-receta", IngredienteRecetaViewSet)
+router.register("detalle-menu-evento", DetalleMenuEventoViewSet)
+router.register("pruebas-menu", PruebaMenuViewSet)
+router.register("inventario-equipo", InventarioEquipoViewSet)
+router.register("registros-roturas", RegistroRoturasViewSet)
+
+urlpatterns = router.urls
