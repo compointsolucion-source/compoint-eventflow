@@ -107,6 +107,18 @@ class EmpresaBanquetera(models.Model):
         validators=[MinValueValidator(1)],
         help_text="Ej. 3 = se manda el correo de recordatorio cuando falten 3 días o menos para la fecha límite de un abono (sin haber vencido todavía).",
     )
+    # --- Cobro adicional automático por exceder cortesía (Módulo B) --------
+    costo_extra_por_asistente_prueba_menu = models.DecimalField(
+        "Costo por cada asistente que exceda el límite de cortesía en una prueba de menú",
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text=(
+            "Ej. 150.00 = si el límite de cortesía es 4 y se agenda una prueba con 6 "
+            "asistentes, se genera automáticamente un cobro adicional de $300.00 "
+            "(2 asistentes de más x $150.00). Déjalo en 0 para no generar cobro automático."
+        ),
+    )
 
     class Meta:
         verbose_name = "Empresa Banquetera"
@@ -565,9 +577,25 @@ class PruebaMenu(models.Model):
         return self.asistentes > self.LIMITE_CORTESIA_ASISTENTES
 
     @property
+    def asistentes_excedentes(self) -> int:
+        """Cuántos asistentes rebasan el límite de cortesía (0 si no excede)."""
+        return max(0, self.asistentes - self.LIMITE_CORTESIA_ASISTENTES)
+
+    @property
     def dia_alta_operacion(self) -> bool:
         """True si `fecha_prueba` cae en viernes o sábado (Módulo B)."""
         return bool(self.fecha_prueba) and self.fecha_prueba.weekday() in (4, 5)
+
+    def calcular_cobro_adicional_sugerido(self) -> Decimal:
+        """Cobro adicional automático por exceder el límite de cortesía:
+        (asistentes de más) x (costo configurado por la empresa). Devuelve
+        0.00 si no excede el límite o si la empresa no configuró un costo."""
+        if not self.asistentes_excedentes or not self.evento_id:
+            return Decimal("0.00")
+        costo_unitario = getattr(
+            self.evento.empresa, "costo_extra_por_asistente_prueba_menu", Decimal("0.00")
+        )
+        return Decimal(self.asistentes_excedentes) * costo_unitario
 
     def clean(self):
         # Módulo B: no se debe agendar una prueba de menú en un viernes o
@@ -577,6 +605,16 @@ class PruebaMenu(models.Model):
             from .services_calendario import validar_fecha_prueba_menu
 
             validar_fecha_prueba_menu(self.evento.empresa_id, self.fecha_prueba)
+
+    def save(self, *args, **kwargs):
+        # Al agendar por primera vez una prueba que excede la cortesía, se
+        # calcula automáticamente el cobro adicional sugerido (Módulo B). Si
+        # ya existe (edición posterior) o si alguien ya capturó un monto
+        # manual al crearla, no se pisa ese valor: el campo sigue siendo
+        # editable a mano desde la pantalla de Pruebas de Menú.
+        if self._state.adding and not self.cobro_adicional_generado:
+            self.cobro_adicional_generado = self.calcular_cobro_adicional_sugerido()
+        super().save(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------

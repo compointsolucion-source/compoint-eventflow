@@ -803,6 +803,91 @@ class PruebaMenuBloqueoFechaTestCase(TestCase):
         self.assertGreater(len(respuesta.data["sugerencias"]), 0)
 
 
+class CobroAdicionalPruebaMenuTestCase(TestCase):
+    """Módulo B: al agendar una prueba de menú que excede el límite de
+    cortesía (4 asistentes), se debe generar automáticamente el cobro
+    adicional = (asistentes de más) x (costo configurado por la empresa),
+    sin dejar de permitir que se edite a mano después."""
+
+    def setUp(self):
+        self.empresa = EmpresaBanquetera.objects.create(
+            nombre_comercial="Banquetes Demo",
+            costo_extra_por_asistente_prueba_menu=Decimal("150.00"),
+        )
+        self.cliente = Cliente.objects.create(
+            empresa=self.empresa, nombre="Cliente Demo", telefono="555-0001",
+        )
+        self.sede = SedeEvento.objects.create(
+            empresa=self.empresa, nombre="Jardín Demo", direccion="Calle 1",
+        )
+        self.evento = Evento.objects.create(
+            empresa=self.empresa, nombre_evento="XV Años Prueba",
+            fecha=date.today() + timedelta(days=90), numero_invitados=50,
+            estado_semaforo=Evento.EstadoSemaforo.CONFIRMADO,
+            tipo_cliente=Evento.TipoCliente.DIRECTO, cliente=self.cliente, sede=self.sede,
+        )
+        # Miércoles cualquiera: entre semana no hay restricción de fecha.
+        hoy = date.today()
+        self.fecha_libre = hoy + timedelta(days=(2 - hoy.weekday()) % 7 or 7)
+
+    def test_no_excede_cortesia_no_genera_cobro(self):
+        prueba = PruebaMenu.objects.create(
+            evento=self.evento, fecha_prueba=self.fecha_libre, asistentes=4,
+        )
+        self.assertEqual(prueba.cobro_adicional_generado, Decimal("0.00"))
+
+    def test_excede_cortesia_genera_cobro_automatico(self):
+        prueba = PruebaMenu.objects.create(
+            evento=self.evento, fecha_prueba=self.fecha_libre, asistentes=6,
+        )
+        # 2 asistentes de más x $150.00 = $300.00
+        self.assertEqual(prueba.cobro_adicional_generado, Decimal("300.00"))
+
+    def test_empresa_sin_costo_configurado_no_genera_cobro(self):
+        self.empresa.costo_extra_por_asistente_prueba_menu = Decimal("0.00")
+        self.empresa.save()
+        prueba = PruebaMenu.objects.create(
+            evento=self.evento, fecha_prueba=self.fecha_libre, asistentes=6,
+        )
+        self.assertEqual(prueba.cobro_adicional_generado, Decimal("0.00"))
+
+    def test_monto_manual_al_crear_no_se_sobreescribe(self):
+        prueba = PruebaMenu.objects.create(
+            evento=self.evento, fecha_prueba=self.fecha_libre, asistentes=6,
+            cobro_adicional_generado=Decimal("999.00"),
+        )
+        self.assertEqual(prueba.cobro_adicional_generado, Decimal("999.00"))
+
+    def test_edicion_posterior_no_recalcula_automaticamente(self):
+        prueba = PruebaMenu.objects.create(
+            evento=self.evento, fecha_prueba=self.fecha_libre, asistentes=6,
+        )
+        self.assertEqual(prueba.cobro_adicional_generado, Decimal("300.00"))
+        # El chef/admin ajusta el monto a mano después de agendada.
+        prueba.cobro_adicional_generado = Decimal("450.00")
+        prueba.save()
+        prueba.refresh_from_db()
+        self.assertEqual(prueba.cobro_adicional_generado, Decimal("450.00"))
+
+    def test_api_agenda_y_devuelve_cobro_adicional_calculado(self):
+        client = APIClient()
+        User = get_user_model()
+        usuario = User.objects.create_user(username="ana", password="clave-segura-123")
+        token = Token.objects.create(user=usuario)
+        client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+        respuesta = client.post(
+            "/api/pruebas-menu/",
+            {
+                "evento": self.evento.id,
+                "fecha_prueba": self.fecha_libre.isoformat(),
+                "asistentes": 7,
+            },
+        )
+        self.assertEqual(respuesta.status_code, 201)
+        # 3 asistentes de más x $150.00 = $450.00
+        self.assertEqual(Decimal(respuesta.data["cobro_adicional_generado"]), Decimal("450.00"))
+
+
 class PdfCargoDanosTestCase(TestCase):
     """Módulo D: el PDF de "Cargo por Daños" se arma a partir de los
     `RegistroRoturas` ya calculados, sin recalcular ni permitir montos

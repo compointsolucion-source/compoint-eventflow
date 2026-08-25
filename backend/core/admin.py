@@ -33,6 +33,7 @@ class EmpresaBanqueteraAdmin(admin.ModelAdmin):
         "horas_vencimiento_prospecto",
         "dias_habiles_limite_anticipo",
         "dias_anticipacion_alerta_abono",
+        "costo_extra_por_asistente_prueba_menu",
         "activa",
         "fecha_alta",
     )
