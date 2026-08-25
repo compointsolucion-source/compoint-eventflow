@@ -32,6 +32,7 @@ class EmpresaBanqueteraAdmin(admin.ModelAdmin):
         "email_contacto",
         "horas_vencimiento_prospecto",
         "dias_habiles_limite_anticipo",
+        "dias_anticipacion_alerta_abono",
         "activa",
         "fecha_alta",
     )
@@ -224,11 +225,30 @@ class EsquemaPagoEventoAdmin(admin.ModelAdmin):
 
 @admin.register(AbonoEvento)
 class AbonoEventoAdmin(admin.ModelAdmin):
-    list_display = ("esquema", "tipo", "monto", "fecha_limite", "pagado", "vencido")
-    list_filter = ("tipo", "pagado")
-    actions = ["marcar_como_pagado"]
+    list_display = (
+        "esquema", "tipo", "monto", "fecha_limite", "pagado", "vencido",
+        "alerta_enviada",
+    )
+    list_filter = ("tipo", "pagado", "alerta_enviada")
+    actions = ["marcar_como_pagado", "enviar_alertas_de_abonos_por_vencer"]
 
     @admin.action(description="Marcar como pagado")
     def marcar_como_pagado(self, request, queryset):
         for abono in queryset:
             abono.marcar_pagado()
+
+    @admin.action(
+        description=(
+            "Enviar alertas de abonos por vencer (Módulo F) — revisa TODOS "
+            "los abonos pendientes de la banquetera, no solo los seleccionados"
+        )
+    )
+    def enviar_alertas_de_abonos_por_vencer(self, request, queryset):
+        from .services_alertas import enviar_alertas_abonos_por_vencer
+
+        resultado = enviar_alertas_abonos_por_vencer()
+        self.message_user(
+            request,
+            f"Correos enviados: {len(resultado['enviados'])}. "
+            f"Omitidos por no tener correo capturado: {len(resultado['omitidos_sin_correo'])}.",
+        )

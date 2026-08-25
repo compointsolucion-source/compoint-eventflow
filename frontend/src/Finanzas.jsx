@@ -53,6 +53,13 @@ function EstadoAbonoBadge({ abono }) {
       </span>
     );
   }
+  if (abono.proximo_a_vencer) {
+    return (
+      <span className="rounded-full border border-orange-300 bg-orange-100 px-3 py-1 text-xs font-medium text-orange-800">
+        Por vencer {abono.alerta_enviada ? "· correo enviado" : ""}
+      </span>
+    );
+  }
   return (
     <span className="rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
       Pendiente
@@ -96,6 +103,8 @@ export default function Finanzas() {
   const [cotizaciones, setCotizaciones] = useState({}); // evento_id -> cotización | null
   const [estado, setEstado] = useState("cargando"); // "cargando" | "ok" | "error"
   const [abonoOcupado, setAbonoOcupado] = useState(null);
+  const [enviandoAlertas, setEnviandoAlertas] = useState(false);
+  const [resultadoAlertas, setResultadoAlertas] = useState(null);
 
   useEffect(() => {
     let cancelado = false;
@@ -165,6 +174,28 @@ export default function Finanzas() {
       })
       .catch(() => {})
       .finally(() => setAbonoOcupado(null));
+  }
+
+  function enviarAlertasPendientes() {
+    setEnviandoAlertas(true);
+    setResultadoAlertas(null);
+    authFetch(`${API_BASE}/abonos/enviar-alertas-pendientes/`, { method: "POST" })
+      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
+      .then((resumen) => {
+        setResultadoAlertas(resumen);
+        // Refresca los esquemas para reflejar los abonos que ya marcaron
+        // alerta_enviada (así el badge "Por vencer · correo enviado" se
+        // actualiza sin tener que recargar la página).
+        return authFetch(`${API_BASE}/esquemas-pago/`).then((res) =>
+          res.ok ? res.json() : Promise.reject(res.status)
+        );
+      })
+      .then((esq) => {
+        const listaEsquemas = Array.isArray(esq) ? esq : esq.results;
+        setEsquemas(Array.isArray(listaEsquemas) ? listaEsquemas : []);
+      })
+      .catch(() => setResultadoAlertas({ error: true }))
+      .finally(() => setEnviandoAlertas(false));
   }
 
   return (
@@ -263,12 +294,38 @@ export default function Finanzas() {
           </section>
 
           <section className="rounded-2xl bg-white p-5 shadow-sm">
-            <h2 className="mb-1 text-lg font-semibold text-navy-900">
-              Esquema de Cobro 50/30/20
-            </h2>
-            <p className="mb-4 text-xs text-slate-500">
-              Anticipo al apartar, pago intermedio en la fecha de prueba de menú, y
-              liquidación 15 días antes del evento.
+            <div className="mb-1 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-navy-900">
+                  Esquema de Cobro 50/30/20
+                </h2>
+                <p className="mb-1 text-xs text-slate-500">
+                  Anticipo al apartar, pago intermedio en la fecha de prueba de menú, y
+                  liquidación 15 días antes del evento.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={enviandoAlertas}
+                onClick={enviarAlertasPendientes}
+                className="whitespace-nowrap rounded-lg border border-navy-900 px-3 py-1.5 text-xs font-medium text-navy-900 disabled:opacity-40"
+              >
+                {enviandoAlertas ? "Enviando…" : "Enviar alertas pendientes"}
+              </button>
+            </div>
+            {resultadoAlertas && (
+              <p className="mb-3 text-xs text-slate-500">
+                {resultadoAlertas.error
+                  ? "No se pudieron enviar las alertas. Intenta de nuevo."
+                  : `Correos enviados: ${resultadoAlertas.enviados?.length ?? 0}. ` +
+                    `Omitidos por no tener correo capturado: ` +
+                    `${resultadoAlertas.omitidos_sin_correo?.length ?? 0}.`}
+              </p>
+            )}
+            <p className="mb-4 text-xs text-slate-400">
+              Recordatorio por correo cuando falta poco para la fecha límite de un
+              abono (no cobra nada: el pago se sigue registrando por fuera con
+              "Marcar como pagado").
             </p>
             <div className="flex flex-col gap-5">
               {esquemas.map((esq) => (

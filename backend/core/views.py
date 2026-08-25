@@ -134,6 +134,30 @@ def inicializar_produccion(request):
     return Response(resultado)
 
 
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def cron_alertas_abonos(request):
+    """Endpoint OPCIONAL para automatizar de verdad, todos los días, el
+    envío de correos de abonos por vencer (Módulo F) sin que nadie tenga
+    que entrar a Finanzas y presionar el botón. Render (plan gratuito) no
+    trae cron/scheduler propio, así que si se quiere 100% automático hay
+    que apuntar un servicio externo GRATUITO de cron (ej. cron-job.org) una
+    vez al día a esta URL con la clave correcta:
+
+        /api/cron/alertas-abonos/?clave=<valor de CRON_ALERTAS_SECRET>
+
+    Es completamente opcional: sin configurar CRON_ALERTAS_SECRET ni el
+    cron externo, el botón manual "Enviar alertas pendientes" de Finanzas
+    sigue funcionando exactamente igual."""
+    secreto_esperado = os.environ.get("CRON_ALERTAS_SECRET")
+    if not secreto_esperado or request.query_params.get("clave") != secreto_esperado:
+        return Response({"detail": "No autorizado."}, status=403)
+
+    from .services_alertas import enviar_alertas_abonos_por_vencer
+
+    return Response(enviar_alertas_abonos_por_vencer())
+
+
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def login_view(request):
@@ -349,6 +373,16 @@ class AbonoEventoViewSet(viewsets.ModelViewSet):
         abono = self.get_object()
         abono.marcar_pagado()
         return Response(AbonoEventoSerializer(abono).data)
+
+    @action(detail=False, methods=["post"], url_path="enviar-alertas-pendientes")
+    def enviar_alertas_pendientes(self, request):
+        """Botón manual "Enviar alertas pendientes" de Finanzas.jsx (Módulo
+        F): dispara el envío de correos para los abonos que están dentro de
+        su ventana de alerta. Requiere sesión de staff, igual que el resto
+        de la API (ver también `cron_alertas_abonos` para automatizarlo)."""
+        from .services_alertas import enviar_alertas_abonos_por_vencer
+
+        return Response(enviar_alertas_abonos_por_vencer())
 
 
 class EventoViewSet(viewsets.ModelViewSet):

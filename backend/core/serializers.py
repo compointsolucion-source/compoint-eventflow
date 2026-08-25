@@ -295,13 +295,16 @@ class VacanteEventoSerializer(serializers.ModelSerializer):
 
 class AbonoEventoSerializer(serializers.ModelSerializer):
     vencido = serializers.BooleanField(read_only=True)
+    proximo_a_vencer = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = AbonoEvento
         fields = [
             "id", "esquema", "tipo", "porcentaje", "monto", "fecha_limite",
-            "pagado", "fecha_pago", "vencido",
+            "pagado", "fecha_pago", "vencido", "proximo_a_vencer",
+            "alerta_enviada", "fecha_alerta_enviada",
         ]
+        read_only_fields = ["alerta_enviada", "fecha_alerta_enviada"]
 
 
 class EsquemaPagoEventoSerializer(serializers.ModelSerializer):

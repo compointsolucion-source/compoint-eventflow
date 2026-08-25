@@ -1,17 +1,22 @@
+import os
 from datetime import date, timedelta
 from decimal import Decimal
+from unittest import mock
 
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework.authtoken.models import Token
 
+from core.services_alertas import enviar_alertas_abonos_por_vencer
 from core.services_calendario import sugerir_fechas_disponibles
 from core.services_pdf import generar_pdf_cargo_danos
 
 from core.models import (
+    AbonoEvento,
     CheckIn,
     Cliente,
     ConfiguracionCotizador,
@@ -861,3 +866,136 @@ class PdfCargoDanosTestCase(TestCase):
             f"/api/eventos/{self.evento.id}/cargo-danos-pdf/", {"vista": "planner"}
         )
         self.assertEqual(respuesta.status_code, 403)
+
+
+class AlertasAbonoPorVencerTestCase(TestCase):
+    """Módulo F: correo de recordatorio cuando se acerca la fecha límite de
+    un abono, sin pasarela de pago real (solo avisa; el pago y el "marcar
+    como pagado" se siguen haciendo por fuera del sistema)."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.empresa = EmpresaBanquetera.objects.create(
+            nombre_comercial="Banquetes Demo", email_contacto="contacto@banquetesdemo.mx",
+        )
+        self.cliente = Cliente.objects.create(
+            empresa=self.empresa, nombre="Cliente Demo", telefono="555-0001",
+            email="cliente@correo-demo.mx",
+        )
+        self.sede = SedeEvento.objects.create(
+            empresa=self.empresa, nombre="Jardín Demo", direccion="Calle 1",
+        )
+        self.evento = Evento.objects.create(
+            empresa=self.empresa, nombre_evento="Boda Demo",
+            fecha=date.today() + timedelta(days=100), numero_invitados=100,
+            tipo_cliente=Evento.TipoCliente.DIRECTO,
+            cliente=self.cliente, sede=self.sede,
+        )
+        self.esquema = EsquemaPagoEvento.objects.create(
+            evento=self.evento, monto_total=Decimal("100000.00")
+        )
+        self.esquema.generar_o_actualizar_abonos()
+        self.abono = self.esquema.abonos.get(tipo="ANTICIPO")
+
+        User = get_user_model()
+        usuario = User.objects.create_user(username="ana", password="clave-segura-123")
+        token = Token.objects.create(user=usuario)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+    def _fijar_fecha_limite(self, dias_desde_hoy):
+        self.abono.fecha_limite = date.today() + timedelta(days=dias_desde_hoy)
+        self.abono.save(update_fields=["fecha_limite"])
+
+    def test_proximo_a_vencer_dentro_de_la_ventana_default_de_3_dias(self):
+        self._fijar_fecha_limite(2)
+        self.assertTrue(self.abono.proximo_a_vencer)
+
+    def test_no_proximo_a_vencer_fuera_de_la_ventana(self):
+        self._fijar_fecha_limite(10)
+        self.assertFalse(self.abono.proximo_a_vencer)
+
+    def test_no_proximo_a_vencer_si_ya_vencido(self):
+        self._fijar_fecha_limite(-1)
+        self.assertFalse(self.abono.proximo_a_vencer)
+
+    def test_no_proximo_a_vencer_si_ya_pagado(self):
+        self._fijar_fecha_limite(1)
+        self.abono.marcar_pagado()
+        self.assertFalse(self.abono.proximo_a_vencer)
+
+    def test_ventana_de_alerta_es_personalizable_por_empresa(self):
+        self.empresa.dias_anticipacion_alerta_abono = 7
+        self.empresa.save(update_fields=["dias_anticipacion_alerta_abono"])
+        self._fijar_fecha_limite(6)
+        self.assertTrue(self.abono.proximo_a_vencer)
+
+    def test_envia_correo_al_cliente_con_copia_a_la_banquetera(self):
+        self._fijar_fecha_limite(2)
+        resultado = enviar_alertas_abonos_por_vencer()
+
+        self.assertEqual(resultado["enviados"], [self.abono.id])
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        self.assertIn("cliente@correo-demo.mx", correo.to)
+        self.assertIn("contacto@banquetesdemo.mx", correo.to)
+        self.assertIn("Boda Demo", correo.subject)
+
+        self.abono.refresh_from_db()
+        self.assertTrue(self.abono.alerta_enviada)
+        self.assertIsNotNone(self.abono.fecha_alerta_enviada)
+
+    def test_no_manda_dos_veces_el_mismo_abono(self):
+        self._fijar_fecha_limite(2)
+        enviar_alertas_abonos_por_vencer()
+        enviar_alertas_abonos_por_vencer()
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_omite_abono_sin_ningun_correo_capturado(self):
+        self.cliente.email = ""
+        self.cliente.save(update_fields=["email"])
+        self.empresa.email_contacto = ""
+        self.empresa.save(update_fields=["email_contacto"])
+        self._fijar_fecha_limite(2)
+
+        resultado = enviar_alertas_abonos_por_vencer()
+        self.assertEqual(resultado["enviados"], [])
+        self.assertEqual(resultado["omitidos_sin_correo"], [self.abono.id])
+        self.assertEqual(len(mail.outbox), 0)
+
+        self.abono.refresh_from_db()
+        self.assertFalse(self.abono.alerta_enviada)
+
+    def test_no_incluye_abono_fuera_de_ventana_ni_ya_vencido(self):
+        self._fijar_fecha_limite(30)
+        resultado = enviar_alertas_abonos_por_vencer()
+        self.assertEqual(resultado["enviados"], [])
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_endpoint_boton_manual_requiere_sesion(self):
+        self.client.credentials()  # quita el token
+        respuesta = self.client.post("/api/abonos/enviar-alertas-pendientes/")
+        self.assertEqual(respuesta.status_code, 401)
+
+    def test_endpoint_boton_manual_envia_y_regresa_resumen(self):
+        self._fijar_fecha_limite(1)
+        respuesta = self.client.post("/api/abonos/enviar-alertas-pendientes/")
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.data["enviados"], [self.abono.id])
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_endpoint_cron_sin_clave_configurada_da_403(self):
+        respuesta = self.client.get("/api/cron/alertas-abonos/?clave=lo-que-sea")
+        self.assertEqual(respuesta.status_code, 403)
+
+    @mock.patch.dict(os.environ, {"CRON_ALERTAS_SECRET": "clave-correcta"})
+    def test_endpoint_cron_con_clave_incorrecta_da_403(self):
+        respuesta = self.client.get("/api/cron/alertas-abonos/?clave=clave-equivocada")
+        self.assertEqual(respuesta.status_code, 403)
+
+    @mock.patch.dict(os.environ, {"CRON_ALERTAS_SECRET": "clave-correcta"})
+    def test_endpoint_cron_con_clave_correcta_envia_sin_sesion(self):
+        self._fijar_fecha_limite(1)
+        self.client.credentials()  # el cron externo no manda Authorization
+        respuesta = self.client.get("/api/cron/alertas-abonos/?clave=clave-correcta")
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.data["enviados"], [self.abono.id])

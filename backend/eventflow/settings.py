@@ -113,6 +113,28 @@ REST_FRAMEWORK = {
 # al cliente (ej. por WhatsApp). No afecta CORS ni la API en sí.
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 
+# --- Correo saliente (Módulo F: alertas de abonos por vencer) ---------------
+# Configurable enteramente por variables de entorno, para que el usuario
+# pueda usar la cuenta de correo que prefiera (Gmail, un correo corporativo,
+# SendGrid, etc.) sin tocar código. Si todavía no se han configurado
+# EMAIL_HOST_USER/EMAIL_HOST_PASSWORD en Render, los correos NO truenan el
+# despliegue: se imprimen en los logs del servicio en vez de mandarse de
+# verdad ("backend de consola"), para que el resto del sistema funcione
+# mientras se da de alta la cuenta de correo.
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "1") == "1"
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "no-reply@compoint-eventflow.local"
+)
+EMAIL_BACKEND = (
+    "django.core.mail.backends.smtp.EmailBackend"
+    if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD
+    else "django.core.mail.backends.console.EmailBackend"
+)
+
 ROOT_URLCONF = "eventflow.urls"
 
 TEMPLATES = [

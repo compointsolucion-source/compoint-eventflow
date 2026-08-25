@@ -100,6 +100,13 @@ class EmpresaBanquetera(models.Model):
         validators=[MinValueValidator(1)],
         help_text="Ej. 5 = un Apartado se marca 'Vencido' y libera la fecha si no llega el anticipo en 5 días hábiles.",
     )
+    # --- Alertas por correo de abonos por vencer (Módulo F) -----------------
+    dias_anticipacion_alerta_abono = models.PositiveIntegerField(
+        "Días de anticipación para avisar por correo que un abono está por vencer",
+        default=3,
+        validators=[MinValueValidator(1)],
+        help_text="Ej. 3 = se manda el correo de recordatorio cuando falten 3 días o menos para la fecha límite de un abono (sin haber vencido todavía).",
+    )
 
     class Meta:
         verbose_name = "Empresa Banquetera"
@@ -1101,6 +1108,14 @@ class AbonoEvento(models.Model):
     fecha_limite = models.DateField()
     pagado = models.BooleanField(default=False)
     fecha_pago = models.DateField(null=True, blank=True)
+    # --- Alertas por correo de abonos por vencer (Módulo F) -----------------
+    # Cada abono manda como máximo UN correo de recordatorio: en cuanto se
+    # envía se marca aquí para que el siguiente chequeo (manual o del cron
+    # externo opcional) no lo vuelva a mandar. No hay pasarela de pago real
+    # -por decisión del usuario- así que esto solo es un recordatorio; el
+    # cobro y el "marcar como pagado" se siguen haciendo por fuera.
+    alerta_enviada = models.BooleanField(default=False)
+    fecha_alerta_enviada = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         verbose_name = "Abono de Evento"
@@ -1115,6 +1130,24 @@ class AbonoEvento(models.Model):
     @property
     def vencido(self) -> bool:
         return not self.pagado and self.fecha_limite < timezone.localdate()
+
+    @property
+    def dias_para_vencer(self) -> int:
+        """Días que faltan para `fecha_limite` (negativo si ya pasó)."""
+        return (self.fecha_limite - timezone.localdate()).days
+
+    @property
+    def proximo_a_vencer(self) -> bool:
+        """True si este abono está dentro de su ventana de alerta (Módulo F:
+        `empresa.dias_anticipacion_alerta_abono`, 3 días por default), sin
+        estar pagado ni haber vencido ya. Se usa tanto para mandar el correo
+        de recordatorio como para no mandarlo dos veces (ver `alerta_enviada`)."""
+        if self.pagado or self.vencido:
+            return False
+        dias_anticipacion = getattr(
+            self.esquema.evento.empresa, "dias_anticipacion_alerta_abono", 3
+        )
+        return 0 <= self.dias_para_vencer <= dias_anticipacion
 
     def marcar_pagado(self):
         self.pagado = True

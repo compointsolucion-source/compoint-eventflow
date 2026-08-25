@@ -24,6 +24,7 @@ from .views import (
     RequerimientoEquipoTiempoViewSet,
     SedeEventoViewSet,
     VacanteEventoViewSet,
+    cron_alertas_abonos,
     estado_servidor,
     inicializar_produccion,
     login_view,
@@ -57,4 +58,5 @@ urlpatterns = router.urls + [
     path("inicializar/", inicializar_produccion, name="inicializar-produccion"),
     path("auth/login/", login_view, name="login"),
     path("planner/<str:token>/", PlannerEventoView.as_view(), name="planner-evento"),
+    path("cron/alertas-abonos/", cron_alertas_abonos, name="cron-alertas-abonos"),
 ]
