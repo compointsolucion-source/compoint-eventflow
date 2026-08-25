@@ -110,6 +110,7 @@ export default function Bodega() {
   const [guardandoRoturaId, setGuardandoRoturaId] = useState(null);
   const [actualizandoDetalleId, setActualizandoDetalleId] = useState(null);
   const [actualizandoListaId, setActualizandoListaId] = useState(null);
+  const [generandoPdfId, setGenerandoPdfId] = useState(null);
 
   function cargarDatos() {
     return Promise.all([
@@ -203,6 +204,34 @@ export default function Bodega() {
       })
       .catch(() => false)
       .finally(() => setGuardandoRoturaId(null));
+  }
+
+  function descargarPdfCargoDanos(lista) {
+    setGenerandoPdfId(lista.id);
+    authFetch(`${API_BASE}/eventos/${lista.evento}/cargo-danos-pdf/`)
+      .then((res) => (res.ok ? res.blob() : Promise.reject(res.status)))
+      .then((blob) => {
+        const url = window.URL.createObjectURL(blob);
+        const enlace = document.createElement("a");
+        enlace.href = url;
+        enlace.download = `cargo-danos-${lista.evento_nombre.replace(/\s+/g, "-")}.pdf`;
+        document.body.appendChild(enlace);
+        enlace.click();
+        enlace.remove();
+        window.URL.revokeObjectURL(url);
+        // El backend ya marcó pdf_cargo_danos_generado=True en cada registro.
+        setRoturas((prev) =>
+          prev.map((r) =>
+            r.evento === lista.evento ? { ...r, pdf_cargo_danos_generado: true } : r
+          )
+        );
+      })
+      .catch(() => {
+        window.alert(
+          "No se pudo generar el PDF. Verifica que el evento tenga roturas registradas."
+        );
+      })
+      .finally(() => setGenerandoPdfId(null));
   }
 
   return (
@@ -368,6 +397,18 @@ export default function Bodega() {
                             ))}
                           </tbody>
                         </table>
+                        <div className="mt-2 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => descargarPdfCargoDanos(lista)}
+                            disabled={generandoPdfId === lista.id}
+                            className="rounded-lg border border-navy-900/20 px-3 py-1.5 text-xs font-medium text-navy-900 hover:bg-navy-900/5 disabled:opacity-40"
+                          >
+                            {generandoPdfId === lista.id
+                              ? "Generando PDF…"
+                              : "Descargar PDF de Cargo por Daños"}
+                          </button>
+                        </div>
                       </div>
                     )}
 

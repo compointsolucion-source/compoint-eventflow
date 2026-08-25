@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 from rest_framework.authtoken.models import Token
 
 from core.services_calendario import sugerir_fechas_disponibles
+from core.services_pdf import generar_pdf_cargo_danos
 
 from core.models import (
     CheckIn,
@@ -795,3 +796,68 @@ class PruebaMenuBloqueoFechaTestCase(TestCase):
         self.assertEqual(respuesta.status_code, 200)
         self.assertFalse(respuesta.data["disponible"])
         self.assertGreater(len(respuesta.data["sugerencias"]), 0)
+
+
+class PdfCargoDanosTestCase(TestCase):
+    """Módulo D: el PDF de "Cargo por Daños" se arma a partir de los
+    `RegistroRoturas` ya calculados, sin recalcular ni permitir montos
+    capturados a mano."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.empresa = EmpresaBanquetera.objects.create(nombre_comercial="Banquetes Demo")
+        self.cliente = Cliente.objects.create(
+            empresa=self.empresa, nombre="Cliente Demo", telefono="555-0001",
+        )
+        self.sede = SedeEvento.objects.create(
+            empresa=self.empresa, nombre="Jardín Demo", direccion="Calle 1",
+        )
+        self.evento = Evento.objects.create(
+            empresa=self.empresa, nombre_evento="Boda Demo",
+            fecha=date.today() + timedelta(days=30), numero_invitados=100,
+            tipo_cliente=Evento.TipoCliente.DIRECTO,
+            cliente=self.cliente, sede=self.sede,
+        )
+        self.copa = InventarioEquipo.objects.create(
+            empresa=self.empresa, nombre="Copa de vino",
+            tipo=InventarioEquipo.TipoEquipo.CRISTALERIA,
+            stock_disponible=100, costo_reposicion_unitario=Decimal("45.00"),
+        )
+        User = get_user_model()
+        usuario = User.objects.create_user(username="ana", password="clave-segura-123")
+        token = Token.objects.create(user=usuario)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+    def test_generar_pdf_sin_roturas_lanza_error(self):
+        with self.assertRaises(ValidationError):
+            generar_pdf_cargo_danos(self.evento)
+
+    def test_generar_pdf_devuelve_bytes_de_un_pdf_valido(self):
+        RegistroRoturas.objects.create(evento=self.evento, articulo=self.copa, cantidad_rota=3)
+        contenido = generar_pdf_cargo_danos(self.evento)
+        self.assertTrue(contenido.startswith(b"%PDF"))
+
+    def test_endpoint_sin_roturas_da_400(self):
+        respuesta = self.client.get(f"/api/eventos/{self.evento.id}/cargo-danos-pdf/")
+        self.assertEqual(respuesta.status_code, 400)
+
+    def test_endpoint_genera_pdf_y_marca_registros(self):
+        rotura = RegistroRoturas.objects.create(
+            evento=self.evento, articulo=self.copa, cantidad_rota=3,
+        )
+        self.assertFalse(rotura.pdf_cargo_danos_generado)
+
+        respuesta = self.client.get(f"/api/eventos/{self.evento.id}/cargo-danos-pdf/")
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta["Content-Type"], "application/pdf")
+        self.assertTrue(respuesta.content.startswith(b"%PDF"))
+
+        rotura.refresh_from_db()
+        self.assertTrue(rotura.pdf_cargo_danos_generado)
+
+    def test_endpoint_no_disponible_en_vista_planner(self):
+        RegistroRoturas.objects.create(evento=self.evento, articulo=self.copa, cantidad_rota=1)
+        respuesta = self.client.get(
+            f"/api/eventos/{self.evento.id}/cargo-danos-pdf/", {"vista": "planner"}
+        )
+        self.assertEqual(respuesta.status_code, 403)

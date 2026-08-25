@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework.authtoken.models import Token
@@ -399,6 +400,31 @@ class EventoViewSet(viewsets.ModelViewSet):
             return Response(cotizar_evento(evento))
         except ValidationError as exc:
             return Response({"detail": str(exc)}, status=400)
+
+    @action(detail=True, methods=["get"], url_path="cargo-danos-pdf")
+    def cargo_danos_pdf(self, request, pk=None):
+        """Módulo D: genera el PDF de "Cargo por Daños" a partir de los
+        `RegistroRoturas` del evento y marca `pdf_cargo_danos_generado` en
+        cada uno. No disponible en la vista `planner` (contiene costos)."""
+        from .services_pdf import generar_pdf_cargo_danos
+
+        evento = self.get_object()
+        if request.query_params.get("vista") == "planner":
+            return Response(
+                {"detail": "No autorizado para el portal de Event Planner."},
+                status=403,
+            )
+        try:
+            contenido_pdf = generar_pdf_cargo_danos(evento)
+        except ValidationError as exc:
+            return Response({"detail": str(exc)}, status=400)
+
+        evento.registros_rotura.update(pdf_cargo_danos_generado=True)
+
+        respuesta = HttpResponse(contenido_pdf, content_type="application/pdf")
+        nombre_archivo = f"cargo-danos-{evento.nombre_evento.replace(' ', '-')}.pdf"
+        respuesta["Content-Disposition"] = f'attachment; filename="{nombre_archivo}"'
+        return respuesta
 
     @action(detail=False, methods=["get"], url_path="disponibilidad-fecha")
     def disponibilidad_fecha(self, request):
