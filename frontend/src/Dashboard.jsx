@@ -225,7 +225,7 @@ function EventoRow({ evento }) {
 
 export default function Dashboard() {
   const [eventos, setEventos] = useState(EVENTOS_DEMO);
-  const [fuente, setFuente] = useState("demo"); // "demo" | "api"
+  const [fuente, setFuente] = useState("demo"); // "demo" | "api-vacio" | "api"
   const [activeNav, setActiveNav] = useState("dashboard");
 
   useEffect(() => {
@@ -235,9 +235,15 @@ export default function Dashboard() {
       .then((data) => {
         if (cancelado) return;
         const lista = Array.isArray(data) ? data : data.results;
-        if (lista?.length) {
+        if (!Array.isArray(lista)) return;
+        // La conexión al backend funcionó (sea que haya o no eventos
+        // capturados todavía); "demo" solo debe reflejar que el fetch
+        // falló, no que la base de datos real esté vacía.
+        if (lista.length) {
           setEventos(lista);
           setFuente("api");
+        } else {
+          setFuente("api-vacio");
         }
       })
       .catch(() => {
@@ -303,8 +309,17 @@ export default function Dashboard() {
         <div className="rounded-xl bg-white/5 p-4 text-xs text-slate-400">
           <p className="font-medium text-slate-200">Banquetes Sincronía</p>
           <p className="mt-1">
-            Datos: <span className={fuente === "api" ? "text-teal-400" : "text-amber-400"}>
-              {fuente === "api" ? "conectado al backend" : "demostración (offline)"}
+            Datos:{" "}
+            <span
+              className={
+                fuente === "demo" ? "text-amber-400" : "text-teal-400"
+              }
+            >
+              {fuente === "api"
+                ? "conectado al backend"
+                : fuente === "api-vacio"
+                ? "conectado al backend (sin eventos aún)"
+                : "demostración (offline)"}
             </span>
           </p>
         </div>
