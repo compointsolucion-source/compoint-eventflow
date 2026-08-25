@@ -9,6 +9,10 @@ import { API_BASE } from "./api.js";
  * 2) las vacantes abiertas por evento, con sus postulaciones y el estado
  *    de check-in de cada una (el código de verificación hace las veces de
  *    un QR/credencial que el Capitán de Meseros confirma el día del evento).
+ *
+ * Es interactiva: desde aquí se acepta/rechaza una postulación y se
+ * confirma el check-in del día del evento (antes solo se podía hacer
+ * desde /admin/).
  */
 
 const ROL_LABELS = {
@@ -40,10 +44,86 @@ function formatoFecha(fecha) {
   });
 }
 
+function FilaPostulacion({ post, onCambiarEstado, onConfirmarCheckin, ocupado }) {
+  const [confirmadoPor, setConfirmadoPor] = useState("");
+
+  return (
+    <tr className="border-b border-slate-100 last:border-0">
+      <td className="py-1.5 pr-4 font-medium text-navy-900">{post.personal_nombre}</td>
+      <td className="py-1.5 pr-4 text-slate-600">{post.personal_telefono}</td>
+      <td className="py-1.5 pr-4">
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-medium ${
+            ESTADO_POSTULACION_STYLES[post.estado] ?? ""
+          }`}
+        >
+          {ESTADO_POSTULACION_LABELS[post.estado] ?? post.estado}
+        </span>
+      </td>
+      <td className="py-1.5 pr-4">
+        {post.check_in ? (
+          post.check_in.asistio ? (
+            <span className="text-teal-600">✓ Presente</span>
+          ) : (
+            <span className="text-amber-600">Pendiente</span>
+          )
+        ) : (
+          <span className="text-slate-300">—</span>
+        )}
+      </td>
+      <td className="py-1.5 pr-4 font-mono text-xs text-slate-500">
+        {post.check_in?.codigo_verificacion ?? "—"}
+      </td>
+      <td className="py-1.5 pr-4">
+        {post.estado === "POSTULADO" && (
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              disabled={ocupado}
+              onClick={() => onCambiarEstado(post, "ACEPTADO")}
+              className="rounded-lg bg-teal-500 px-2.5 py-1 text-xs font-medium text-navy-950 disabled:opacity-40"
+            >
+              Aceptar
+            </button>
+            <button
+              type="button"
+              disabled={ocupado}
+              onClick={() => onCambiarEstado(post, "RECHAZADO")}
+              className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+            >
+              Rechazar
+            </button>
+          </div>
+        )}
+        {post.estado === "ACEPTADO" && !post.check_in?.asistio && (
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              placeholder="Confirmado por…"
+              value={confirmadoPor}
+              onChange={(e) => setConfirmadoPor(e.target.value)}
+              className="w-32 rounded-md border border-slate-300 px-2 py-1 text-xs"
+            />
+            <button
+              type="button"
+              disabled={ocupado}
+              onClick={() => onConfirmarCheckin(post, confirmadoPor)}
+              className="rounded-lg bg-navy-900 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40"
+            >
+              Confirmar asistencia
+            </button>
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+}
+
 export default function Personal() {
   const [personal, setPersonal] = useState([]);
   const [vacantes, setVacantes] = useState([]);
   const [estado, setEstado] = useState("cargando"); // "cargando" | "ok" | "error"
+  const [postulacionOcupada, setPostulacionOcupada] = useState(null);
 
   useEffect(() => {
     let cancelado = false;
@@ -71,13 +151,54 @@ export default function Personal() {
     };
   }, []);
 
+  function actualizarPostulacionEnEstado(vacanteId, postulacionActualizada) {
+    setVacantes((prev) =>
+      prev.map((v) =>
+        v.id !== vacanteId
+          ? v
+          : {
+              ...v,
+              postulaciones: v.postulaciones.map((p) =>
+                p.id === postulacionActualizada.id ? postulacionActualizada : p
+              ),
+            }
+      )
+    );
+  }
+
+  function cambiarEstadoPostulacion(vacanteId, post, nuevoEstado) {
+    setPostulacionOcupada(post.id);
+    fetch(`${API_BASE}/postulaciones/${post.id}/`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ estado: nuevoEstado }),
+    })
+      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
+      .then((actualizada) => actualizarPostulacionEnEstado(vacanteId, actualizada))
+      .catch(() => {})
+      .finally(() => setPostulacionOcupada(null));
+  }
+
+  function confirmarCheckin(vacanteId, post, confirmadoPor) {
+    setPostulacionOcupada(post.id);
+    fetch(`${API_BASE}/postulaciones/${post.id}/confirmar-checkin/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmado_por: confirmadoPor }),
+    })
+      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
+      .then((checkIn) => actualizarPostulacionEnEstado(vacanteId, { ...post, check_in: checkIn }))
+      .catch(() => {})
+      .finally(() => setPostulacionOcupada(null));
+  }
+
   return (
     <div className="flex flex-col gap-8">
       <header>
         <h1 className="text-2xl font-semibold text-navy-900">Personal Eventual</h1>
         <p className="text-sm text-slate-500">
-          Bolsa de Trabajo por evento y Check-In del día: quién se postuló, quién fue
-          aceptado y quién ya confirmó su asistencia.
+          Bolsa de Trabajo por evento y Check-In del día: acepta o rechaza postulaciones y
+          confirma la asistencia al llegar el trabajador.
         </p>
       </header>
 
@@ -181,45 +302,26 @@ export default function Personal() {
                           <th className="py-1.5 pr-4">Estado</th>
                           <th className="py-1.5 pr-4">Check-in</th>
                           <th className="py-1.5 pr-4">Código</th>
+                          <th className="py-1.5 pr-4">Acciones</th>
                         </tr>
                       </thead>
                       <tbody>
                         {vac.postulaciones?.map((post) => (
-                          <tr key={post.id} className="border-b border-slate-100 last:border-0">
-                            <td className="py-1.5 pr-4 font-medium text-navy-900">
-                              {post.personal_nombre}
-                            </td>
-                            <td className="py-1.5 pr-4 text-slate-600">
-                              {post.personal_telefono}
-                            </td>
-                            <td className="py-1.5 pr-4">
-                              <span
-                                className={`rounded-full px-3 py-1 text-xs font-medium ${
-                                  ESTADO_POSTULACION_STYLES[post.estado] ?? ""
-                                }`}
-                              >
-                                {ESTADO_POSTULACION_LABELS[post.estado] ?? post.estado}
-                              </span>
-                            </td>
-                            <td className="py-1.5 pr-4">
-                              {post.check_in ? (
-                                post.check_in.asistio ? (
-                                  <span className="text-teal-600">✓ Presente</span>
-                                ) : (
-                                  <span className="text-amber-600">Pendiente</span>
-                                )
-                              ) : (
-                                <span className="text-slate-300">—</span>
-                              )}
-                            </td>
-                            <td className="py-1.5 pr-4 font-mono text-xs text-slate-500">
-                              {post.check_in?.codigo_verificacion ?? "—"}
-                            </td>
-                          </tr>
+                          <FilaPostulacion
+                            key={post.id}
+                            post={post}
+                            ocupado={postulacionOcupada === post.id}
+                            onCambiarEstado={(p, nuevoEstado) =>
+                              cambiarEstadoPostulacion(vac.id, p, nuevoEstado)
+                            }
+                            onConfirmarCheckin={(p, confirmadoPor) =>
+                              confirmarCheckin(vac.id, p, confirmadoPor)
+                            }
+                          />
                         ))}
                         {!vac.postulaciones?.length && (
                           <tr>
-                            <td colSpan={5} className="py-2 italic text-slate-400">
+                            <td colSpan={6} className="py-2 italic text-slate-400">
                               Sin postulaciones todavía.
                             </td>
                           </tr>

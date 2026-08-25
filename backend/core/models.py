@@ -461,7 +461,7 @@ class RegistroRoturas(models.Model):
     costo_reposicion = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        help_text="Costo total de reposición para esta rotura (cantidad x costo unitario).",
+        help_text="Costo total de reposición para esta rotura (cantidad x costo unitario). Se calcula solo.",
     )
     registrado_por = models.CharField(
         "Capitán de Meseros que registró el conteo", max_length=150, blank=True
@@ -473,6 +473,16 @@ class RegistroRoturas(models.Model):
         verbose_name = "Registro de Rotura"
         verbose_name_plural = "Registros de Roturas"
         ordering = ["-fecha_registro"]
+
+    def save(self, *args, **kwargs):
+        # El costo de reposición nunca se captura a mano: siempre es
+        # cantidad rota x costo de reposición unitario del artículo, para
+        # que el "Cargo por Daños" del conteo de retorno (Módulo D) sea
+        # consistente con el catálogo de inventario.
+        self.costo_reposicion = (
+            Decimal(self.cantidad_rota) * self.articulo.costo_reposicion_unitario
+        ).quantize(Decimal("0.01"))
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.cantidad_rota}x {self.articulo} - {self.evento}"

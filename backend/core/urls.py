@@ -6,6 +6,7 @@ from .views import (
     CheckInViewSet,
     ClienteViewSet,
     ConfiguracionCotizadorViewSet,
+    DetalleListaCargaViewSet,
     DetalleMenuEventoViewSet,
     EmpresaBanqueteraViewSet,
     EsquemaPagoEventoViewSet,
@@ -40,6 +41,7 @@ router.register("inventario-equipo", InventarioEquipoViewSet)
 router.register("registros-roturas", RegistroRoturasViewSet)
 router.register("requerimientos-equipo", RequerimientoEquipoTiempoViewSet)
 router.register("listas-carga", ListaCargaEventoViewSet)
+router.register("detalle-lista-carga", DetalleListaCargaViewSet)
 router.register("personal-eventual", PersonalEventualViewSet)
 router.register("vacantes", VacanteEventoViewSet)
 router.register("postulaciones", PostulacionViewSet)

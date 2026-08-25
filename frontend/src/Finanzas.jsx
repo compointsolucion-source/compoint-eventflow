@@ -11,6 +11,10 @@ import { API_BASE } from "./api.js";
  * 2) el Esquema de Cobro 50/30/20 por evento: anticipo, pago intermedio
  *    (fecha de prueba de menú) y liquidación (15 días antes del evento),
  *    con el estado de cada abono (pagado / vencido / pendiente).
+ *
+ * Es interactiva: cada abono pendiente/vencido tiene un botón "Marcar como
+ * pagado" (el cobro en sí se sigue haciendo por fuera del sistema —
+ * transferencia, terminal, efectivo — esto solo registra que ya se pagó).
  */
 
 function formatoMoneda(valor) {
@@ -56,12 +60,42 @@ function EstadoAbonoBadge({ abono }) {
   );
 }
 
+function FilaAbono({ abono, onMarcarPagado, ocupado }) {
+  return (
+    <tr className="border-b border-slate-100 last:border-0">
+      <td className="py-1.5 pr-4 text-slate-700">
+        {TIPO_ABONO_LABELS[abono.tipo] ?? abono.tipo}
+      </td>
+      <td className="py-1.5 pr-4 font-medium text-navy-900">
+        {formatoMoneda(abono.monto)}
+      </td>
+      <td className="py-1.5 pr-4 text-slate-600">{formatoFecha(abono.fecha_limite)}</td>
+      <td className="py-1.5 pr-4">
+        <EstadoAbonoBadge abono={abono} />
+      </td>
+      <td className="py-1.5 pr-4">
+        {!abono.pagado && (
+          <button
+            type="button"
+            disabled={ocupado}
+            onClick={() => onMarcarPagado(abono)}
+            className="rounded-lg bg-navy-900 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40"
+          >
+            {ocupado ? "Guardando…" : "Marcar como pagado"}
+          </button>
+        )}
+      </td>
+    </tr>
+  );
+}
+
 export default function Finanzas() {
   const [configuracion, setConfiguracion] = useState(null);
   const [esquemas, setEsquemas] = useState([]);
   const [eventos, setEventos] = useState([]);
   const [cotizaciones, setCotizaciones] = useState({}); // evento_id -> cotización | null
   const [estado, setEstado] = useState("cargando"); // "cargando" | "ok" | "error"
+  const [abonoOcupado, setAbonoOcupado] = useState(null);
 
   useEffect(() => {
     let cancelado = false;
@@ -116,6 +150,22 @@ export default function Finanzas() {
       cancelado = true;
     };
   }, [eventos]);
+
+  function marcarAbonoPagado(abono) {
+    setAbonoOcupado(abono.id);
+    fetch(`${API_BASE}/abonos/${abono.id}/marcar-pagado/`, { method: "POST" })
+      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
+      .then((actualizado) => {
+        setEsquemas((prev) =>
+          prev.map((esq) => ({
+            ...esq,
+            abonos: esq.abonos?.map((a) => (a.id === actualizado.id ? actualizado : a)),
+          }))
+        );
+      })
+      .catch(() => {})
+      .finally(() => setAbonoOcupado(null));
+  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -242,28 +292,21 @@ export default function Finanzas() {
                           <th className="py-1.5 pr-4">Monto</th>
                           <th className="py-1.5 pr-4">Fecha límite</th>
                           <th className="py-1.5 pr-4">Estado</th>
+                          <th className="py-1.5 pr-4">Acciones</th>
                         </tr>
                       </thead>
                       <tbody>
                         {esq.abonos?.map((abono) => (
-                          <tr key={abono.id} className="border-b border-slate-100 last:border-0">
-                            <td className="py-1.5 pr-4 text-slate-700">
-                              {TIPO_ABONO_LABELS[abono.tipo] ?? abono.tipo}
-                            </td>
-                            <td className="py-1.5 pr-4 font-medium text-navy-900">
-                              {formatoMoneda(abono.monto)}
-                            </td>
-                            <td className="py-1.5 pr-4 text-slate-600">
-                              {formatoFecha(abono.fecha_limite)}
-                            </td>
-                            <td className="py-1.5 pr-4">
-                              <EstadoAbonoBadge abono={abono} />
-                            </td>
-                          </tr>
+                          <FilaAbono
+                            key={abono.id}
+                            abono={abono}
+                            ocupado={abonoOcupado === abono.id}
+                            onMarcarPagado={marcarAbonoPagado}
+                          />
                         ))}
                         {!esq.abonos?.length && (
                           <tr>
-                            <td colSpan={4} className="py-2 italic text-slate-400">
+                            <td colSpan={5} className="py-2 italic text-slate-400">
                               Sin abonos generados todavía.
                             </td>
                           </tr>

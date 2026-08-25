@@ -195,12 +195,25 @@ class RequerimientoEquipoTiempoViewSet(viewsets.ModelViewSet):
 class ListaCargaEventoViewSet(viewsets.ModelViewSet):
     """Módulo D: listas de carga por evento, con el desglose de equipo ya
     calculado (`cantidad_requerida` y `cantidad_a_cargar` con el +10% de
-    rotura aplicado)."""
+    rotura aplicado). Soporta PATCH para que, desde Bodega, el Capitán de
+    Meseros marque `conteo_retorno_completado` al terminar el evento."""
 
     queryset = ListaCargaEvento.objects.select_related("evento").prefetch_related(
         "detalles__articulo"
     ).all()
     serializer_class = ListaCargaEventoSerializer
+
+
+class DetalleListaCargaViewSet(viewsets.ModelViewSet):
+    """Una línea de una lista de carga. Se usa desde Bodega solo para marcar
+    `surtido` (ya se cargó al camión) con un PATCH; las líneas en sí se
+    generan automáticamente desde `ListaCargaEvento.generar_o_actualizar_detalles`,
+    no se crean a mano."""
+
+    queryset = DetalleListaCarga.objects.select_related(
+        "lista_carga__evento", "articulo"
+    ).all()
+    serializer_class = DetalleListaCargaSerializer
 
 
 class PersonalEventualViewSet(viewsets.ModelViewSet):

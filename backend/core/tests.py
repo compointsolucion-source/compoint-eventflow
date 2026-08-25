@@ -17,6 +17,7 @@ from core.models import (
     Postulacion,
     PruebaMenu,
     RecetaMaestra,
+    RegistroRoturas,
     RequerimientoEquipoTiempo,
     SedeEvento,
     TiempoMenu,
@@ -358,3 +359,44 @@ class CheckInTestCase(TestCase):
         self.assertTrue(check_in.asistio)
         self.assertIsNotNone(check_in.hora_checkin)
         self.assertEqual(check_in.confirmado_por, "Capitán de Meseros")
+
+
+class RegistroRoturasTestCase(TestCase):
+    """Verifica que el 'Cargo por Daños' (Módulo D) siempre se calcule solo,
+    sin depender de que alguien capture bien el costo a mano."""
+
+    def setUp(self):
+        self.empresa = EmpresaBanquetera.objects.create(nombre_comercial="Banquetes Demo")
+        self.cliente = Cliente.objects.create(
+            empresa=self.empresa, nombre="Cliente Demo", telefono="555-0001",
+        )
+        self.sede = SedeEvento.objects.create(
+            empresa=self.empresa, nombre="Jardín Demo", direccion="Calle 1",
+        )
+        self.evento = Evento.objects.create(
+            empresa=self.empresa, nombre_evento="Boda Demo",
+            fecha=date.today() + timedelta(days=30), numero_invitados=100,
+            tipo_cliente=Evento.TipoCliente.DIRECTO,
+            cliente=self.cliente, sede=self.sede,
+        )
+        self.copa = InventarioEquipo.objects.create(
+            empresa=self.empresa, nombre="Copa de vino",
+            tipo=InventarioEquipo.TipoEquipo.CRISTALERIA,
+            stock_disponible=100, costo_reposicion_unitario=Decimal("45.00"),
+        )
+
+    def test_costo_reposicion_se_calcula_solo_al_guardar(self):
+        rotura = RegistroRoturas.objects.create(
+            evento=self.evento, articulo=self.copa, cantidad_rota=3,
+        )
+        self.assertEqual(rotura.costo_reposicion, Decimal("135.00"))
+
+    def test_costo_reposicion_ignora_un_valor_capturado_a_mano(self):
+        # Aunque alguien mande un costo_reposicion distinto, se recalcula
+        # siempre a partir del catálogo de inventario para no perder
+        # consistencia con el "Cargo por Daños".
+        rotura = RegistroRoturas.objects.create(
+            evento=self.evento, articulo=self.copa, cantidad_rota=2,
+            costo_reposicion=Decimal("1.00"),
+        )
+        self.assertEqual(rotura.costo_reposicion, Decimal("90.00"))

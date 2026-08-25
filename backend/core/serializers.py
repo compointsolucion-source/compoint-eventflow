@@ -112,9 +112,23 @@ class InventarioEquipoSerializer(serializers.ModelSerializer):
 
 
 class RegistroRoturasSerializer(serializers.ModelSerializer):
+    """Registro de rotura del Módulo D. `costo_reposicion` nunca se captura
+    a mano: el modelo lo recalcula solo (cantidad_rota x costo de
+    reposición unitario del artículo) al guardar, así que aquí es de solo
+    lectura para evitar inconsistencias entre lo que se muestra y lo que
+    realmente se guarda."""
+
+    articulo_nombre = serializers.CharField(source="articulo.nombre", read_only=True)
+    evento_nombre = serializers.CharField(source="evento.nombre_evento", read_only=True)
+
     class Meta:
         model = RegistroRoturas
-        fields = "__all__"
+        fields = [
+            "id", "evento", "evento_nombre", "articulo", "articulo_nombre",
+            "cantidad_rota", "costo_reposicion", "registrado_por",
+            "fecha_registro", "pdf_cargo_danos_generado",
+        ]
+        read_only_fields = ["costo_reposicion", "fecha_registro", "pdf_cargo_danos_generado"]
 
 
 class RequerimientoEquipoTiempoSerializer(serializers.ModelSerializer):
