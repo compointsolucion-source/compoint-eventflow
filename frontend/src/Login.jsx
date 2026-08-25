@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { API_BASE, guardarSesion } from "./api.js";
+import logoIcono from "./assets/logo-icono.png";
 
 /**
  * Login del equipo interno de la banquetera (Módulo A: autenticación y
@@ -43,9 +44,7 @@ export default function Login({ onIngreso }) {
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-sm">
         <div className="mb-6 flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-400 to-teal-500 font-bold text-navy-950">
-            CE
-          </span>
+          <img src={logoIcono} alt="COMPOINT EventFlow" className="h-10 w-10 shrink-0 object-contain" />
           <div>
             <p className="text-lg font-semibold leading-tight text-navy-900">COMPOINT</p>
             <p className="-mt-1 text-lg font-semibold leading-tight text-teal-600">

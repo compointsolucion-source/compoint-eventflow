@@ -4,6 +4,7 @@ import Recetario from "./Recetario.jsx";
 import Bodega from "./Bodega.jsx";
 import Personal from "./Personal.jsx";
 import Finanzas from "./Finanzas.jsx";
+import logoIcono from "./assets/logo-icono.png";
 
 /**
  * Dashboard principal de COMPOINT EventFlow.
@@ -357,9 +358,7 @@ export default function Dashboard({ onCerrarSesion }) {
       <aside className="flex shrink-0 flex-col justify-between bg-navy-950 px-5 py-6 text-white lg:w-72">
         <div>
           <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-400 to-teal-500 font-bold text-navy-950">
-              CE
-            </span>
+            <img src={logoIcono} alt="COMPOINT EventFlow" className="h-10 w-10 shrink-0 object-contain" />
             <div>
               <p className="text-lg font-semibold leading-tight">COMPOINT</p>
               <p className="-mt-1 text-lg font-semibold leading-tight text-teal-400">EventFlow</p>

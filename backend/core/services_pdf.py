@@ -10,6 +10,7 @@ costo_reposicion_unitario del artículo) — este módulo solo se encarga de
 darle formato de documento, nunca recalcula ni permite capturar montos.
 """
 
+import os
 from datetime import datetime
 from decimal import Decimal
 from io import BytesIO
@@ -21,6 +22,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import mm
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import (
+    Image,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -28,9 +30,18 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-NAVY = colors.HexColor("#0f172a")
-TEAL = colors.HexColor("#14b8a6")
+# Paleta de marca COMPOINT EventFlow, tomada directamente del logo real
+# (mismos valores que `frontend/src/index.css`: NAVY = gris carbón del
+# wordmark/sidebar, TEAL = verde de marca de la esfera de red).
+NAVY = colors.HexColor("#23262b")
+TEAL = colors.HexColor("#2e8f5e")
 SLATE = colors.HexColor("#64748b")
+
+# Ícono del logo (la esfera de red verde), recortado con fondo transparente
+# a partir del logo real que dio de alta el usuario. Se lee directo del
+# disco -no requiere configuración de archivos estáticos de Django- porque
+# `reportlab` arma el PDF en memoria en el momento de la petición.
+_RUTA_LOGO = os.path.join(os.path.dirname(__file__), "assets", "logo-icono.png")
 
 
 def _formato_moneda(valor) -> str:
@@ -80,8 +91,31 @@ def generar_pdf_cargo_danos(evento) -> bytes:
     )
 
     empresa = evento.empresa
+
+    # Encabezado con el logo real (ícono de la esfera de red) junto al
+    # nombre de la banquetera, para que el documento salga de marca.
+    encabezado = Table(
+        [[
+            Image(_RUTA_LOGO, width=16 * mm, height=16 * mm),
+            Paragraph(empresa.nombre_comercial or "COMPOINT EventFlow", estilo_titulo),
+        ]],
+        colWidths=[20 * mm, 150 * mm],
+    )
+    encabezado.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (0, 0), 0),
+                ("LEFTPADDING", (1, 0), (1, 0), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
+
     elementos = [
-        Paragraph(empresa.nombre_comercial or "COMPOINT EventFlow", estilo_titulo),
+        encabezado,
+        Spacer(1, 6),
         Paragraph("Cargo por Daños — Control de Retorno de Bodega", estilo_subtitulo),
         Paragraph("Evento", estilo_etiqueta),
         Paragraph(evento.nombre_evento, estilo_valor),

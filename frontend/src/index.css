@@ -1,14 +1,22 @@
 @import "tailwindcss";
 
-/* Paleta de marca COMPOINT EventFlow: Deep Navy + Teal (Prompt Maestro 2) */
+/* Paleta de marca COMPOINT EventFlow: tomada directamente del logo real
+   (esfera de red en degradado verde + wordmark en gris carbón). Los
+   tokens se llaman "navy-*"/"teal-*" por compatibilidad con el resto del
+   código (así no hay que tocar cada clase de cada pantalla), pero ya NO
+   son azul marino ni verde azulado: "navy-*" es la escala de gris carbón
+   (fondo del sidebar y textos de encabezado) y "teal-*" es la escala de
+   verde de marca (acentos, botones, badges). */
 @theme {
-  --color-navy-950: #0a1128;
-  --color-navy-900: #0f1c3f;
-  --color-navy-800: #16294f;
-  --color-navy-700: #1e3564;
-  --color-teal-500: #14b8a6;
-  --color-teal-400: #2dd4bf;
-  --color-teal-300: #5eead4;
+  --color-navy-950: #17181a;
+  --color-navy-900: #23262b;
+  --color-navy-800: #2e3138;
+  --color-navy-700: #3a3e46;
+  --color-teal-700: #1b5c3a;
+  --color-teal-600: #24774c;
+  --color-teal-500: #2e8f5e;
+  --color-teal-400: #4fae79;
+  --color-teal-300: #8fcda8;
 }
 
 body {

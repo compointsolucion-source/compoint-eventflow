@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { API_BASE } from "./api.js";
+import logoIcono from "./assets/logo-icono.png";
 
 /**
  * Portal del Event Planner (Módulo A): acceso de solo lectura a UN evento,
@@ -99,9 +100,7 @@ export default function PlannerView({ token }) {
     <div className="min-h-screen bg-slate-50 px-4 py-10">
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
         <header className="flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-400 to-teal-500 font-bold text-navy-950">
-            CE
-          </span>
+          <img src={logoIcono} alt="COMPOINT EventFlow" className="h-10 w-10 shrink-0 object-contain" />
           <div>
             <p className="text-sm font-semibold leading-tight text-navy-900">COMPOINT</p>
             <p className="-mt-1 text-sm font-semibold leading-tight text-teal-600">
