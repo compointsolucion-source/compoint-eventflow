@@ -27,17 +27,65 @@ from .models import (
 
 @admin.register(EmpresaBanquetera)
 class EmpresaBanqueteraAdmin(admin.ModelAdmin):
-    list_display = (
-        "nombre_comercial",
-        "email_contacto",
-        "horas_vencimiento_prospecto",
-        "dias_habiles_limite_anticipo",
-        "dias_anticipacion_alerta_abono",
-        "costo_extra_por_asistente_prueba_menu",
-        "activa",
-        "fecha_alta",
-    )
+    # Lista corta y legible (sin scroll horizontal): solo lo que sirve para
+    # identificar/ubicar una empresa de un vistazo. Los parámetros de cada
+    # módulo (Semáforo, Alertas, Pruebas de Menú) se ven organizados por
+    # secciones al entrar al detalle — ver `fieldsets` abajo — y, para el
+    # uso del día a día, es más simple editarlos desde la pantalla
+    # "Configuración" dentro de la propia app (no requiere entrar aquí).
+    list_display = ("nombre_comercial", "email_contacto", "telefono_contacto", "activa")
     search_fields = ("nombre_comercial", "razon_social", "rfc")
+    fieldsets = (
+        (
+            "Datos de la empresa",
+            {
+                "description": (
+                    "Recomendado: para cambios del día a día usa la pantalla "
+                    "\"Configuración\" dentro de COMPOINT EventFlow — es más simple "
+                    "y no requiere entrar al admin. Este panel queda como respaldo técnico."
+                ),
+                "fields": (
+                    "nombre_comercial",
+                    "razon_social",
+                    "rfc",
+                    "telefono_contacto",
+                    "email_contacto",
+                    "direccion_bodega_central",
+                    "activa",
+                ),
+            },
+        ),
+        (
+            "Semáforo de Fechas (Módulo A)",
+            {
+                "description": (
+                    "Plazos automáticos para que un Prospecto o un Apartado se "
+                    "marquen como vencidos."
+                ),
+                "fields": ("horas_vencimiento_prospecto", "dias_habiles_limite_anticipo"),
+            },
+        ),
+        (
+            "Alertas de abonos por correo (Módulo F)",
+            {
+                "description": (
+                    "Con cuánta anticipación se avisa por correo que un abono está "
+                    "por vencer."
+                ),
+                "fields": ("dias_anticipacion_alerta_abono",),
+            },
+        ),
+        (
+            "Pruebas de Menú (Módulo B)",
+            {
+                "description": (
+                    "Costo por cada asistente que exceda el límite de cortesía (4 "
+                    "personas). Se cobra automáticamente al agendar la prueba."
+                ),
+                "fields": ("costo_extra_por_asistente_prueba_menu",),
+            },
+        ),
+    )
 
 
 @admin.register(Cliente)
