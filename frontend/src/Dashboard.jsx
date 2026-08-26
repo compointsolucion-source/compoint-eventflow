@@ -5,6 +5,7 @@ import PruebasMenu from "./PruebasMenu.jsx";
 import Bodega from "./Bodega.jsx";
 import Personal from "./Personal.jsx";
 import Finanzas from "./Finanzas.jsx";
+import ConfiguracionEmpresa from "./ConfiguracionEmpresa.jsx";
 import logoIcono from "./assets/logo-icono.png";
 
 /**
@@ -81,6 +82,7 @@ const NAV_ITEMS = [
   { key: "bodega", label: "Bodega e Inventario", icon: IconBox },
   { key: "staffing", label: "Personal Eventual", icon: IconUsers },
   { key: "finanzas", label: "Finanzas", icon: IconWallet },
+  { key: "configuracion", label: "Configuración", icon: IconGear },
 ];
 
 function IconGrid(props) {
@@ -157,6 +159,17 @@ function IconFork(props) {
   return (
     <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" stroke="currentColor" {...props}>
       <path d="M8 3v6a2 2 0 1 1-4 0V3M6 9v12M14 3v18M18 3c0 4-4 4-4 8" strokeLinecap="round" />
+    </svg>
+  );
+}
+function IconGear(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" stroke="currentColor" {...props}>
+      <circle cx="12" cy="12" r="3.2" />
+      <path
+        d="M12 3.5v2M12 18.5v2M20.5 12h-2M5.5 12h-2M17.7 6.3l-1.4 1.4M7.7 16.3l-1.4 1.4M17.7 17.7l-1.4-1.4M7.7 7.7 6.3 6.3"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -431,6 +444,7 @@ export default function Dashboard({ onCerrarSesion }) {
         {activeNav === "bodega" && <Bodega />}
         {activeNav === "staffing" && <Personal />}
         {activeNav === "finanzas" && <Finanzas />}
+        {activeNav === "configuracion" && <ConfiguracionEmpresa />}
       </main>
     </div>
   );
