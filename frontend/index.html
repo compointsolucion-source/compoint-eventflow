@@ -3,8 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>COMPOINT EventFlow</title>
+
+    <!-- PWA: permite "Agregar a pantalla de inicio" en Android/Chrome y iOS,
+         para que la app se abra como app (sin barra del navegador). El
+         manifest en sí (manifest.webmanifest) lo genera e inyecta
+         automáticamente vite-plugin-pwa al hacer build (ver vite.config.js). -->
+    <meta name="theme-color" content="#17181a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="EventFlow" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   </head>
   <body>
     <div id="root"></div>

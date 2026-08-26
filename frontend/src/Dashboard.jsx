@@ -162,6 +162,20 @@ function IconFork(props) {
     </svg>
   );
 }
+function IconMenu(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" stroke="currentColor" {...props}>
+      <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
+    </svg>
+  );
+}
+function IconX(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" stroke="currentColor" {...props}>
+      <path d="M6 6l12 12M18 6 6 18" strokeLinecap="round" />
+    </svg>
+  );
+}
 function IconGear(props) {
   return (
     <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" stroke="currentColor" {...props}>
@@ -320,6 +334,7 @@ export default function Dashboard({ onCerrarSesion }) {
   const [eventos, setEventos] = useState(EVENTOS_DEMO);
   const [fuente, setFuente] = useState("demo"); // "demo" | "api-vacio" | "api"
   const [activeNav, setActiveNav] = useState("dashboard");
+  const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
 
   function handleCerrarSesion() {
     cerrarSesion();
@@ -369,26 +384,52 @@ export default function Dashboard({ onCerrarSesion }) {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 lg:flex">
-      {/* Sidebar */}
-      <aside className="flex shrink-0 flex-col justify-between bg-navy-950 px-5 py-6 text-white lg:w-72">
+      {/* Barra superior — solo en celular/tablet, oculta desde lg (pantallas grandes) */}
+      <div className="sticky top-0 z-30 flex items-center justify-between bg-navy-950 px-4 py-3 text-white lg:hidden">
+        <div className="flex items-center gap-2">
+          <img src={logoIcono} alt="COMPOINT EventFlow" className="h-10 w-10 shrink-0 object-contain" />
+          <div>
+            <p className="text-sm font-semibold leading-tight">COMPOINT</p>
+            <p className="-mt-0.5 text-sm font-semibold leading-tight text-teal-400">EventFlow</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setMenuMovilAbierto((v) => !v)}
+          aria-label={menuMovilAbierto ? "Cerrar menú" : "Abrir menú"}
+          className="rounded-lg p-2 text-slate-200 hover:bg-white/10"
+        >
+          {menuMovilAbierto ? <IconX className="h-6 w-6" /> : <IconMenu className="h-6 w-6" />}
+        </button>
+      </div>
+
+      {/* Sidebar: fija en pantallas grandes (lg+), menú desplegable en celular/tablet */}
+      <aside
+        className={`${
+          menuMovilAbierto ? "flex" : "hidden"
+        } z-20 flex-col justify-between bg-navy-950 px-5 py-6 text-white lg:flex lg:w-72 lg:shrink-0`}
+      >
         <div>
-          <div className="flex items-center gap-3">
+          <div className="hidden items-center gap-3 lg:flex">
             <img src={logoIcono} alt="COMPOINT EventFlow" className="h-20 w-20 shrink-0 object-contain" />
             <div>
               <p className="text-lg font-semibold leading-tight">COMPOINT</p>
               <p className="-mt-1 text-lg font-semibold leading-tight text-teal-400">EventFlow</p>
             </div>
           </div>
-          <p className="mt-4 text-xs italic leading-relaxed text-slate-400">
+          <p className="mt-4 hidden text-xs italic leading-relaxed text-slate-400 lg:block">
             "Sincronía total desde el almacén hasta la mesa del invitado."
           </p>
 
-          <nav className="mt-8 flex flex-col gap-1">
+          <nav className="flex flex-col gap-1 lg:mt-8">
             {NAV_ITEMS.map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
                 type="button"
-                onClick={() => setActiveNav(key)}
+                onClick={() => {
+                  setActiveNav(key);
+                  setMenuMovilAbierto(false);
+                }}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
                   activeNav === key
                     ? "bg-white/10 text-white"
@@ -402,7 +443,7 @@ export default function Dashboard({ onCerrarSesion }) {
           </nav>
         </div>
 
-        <div className="rounded-xl bg-white/5 p-4 text-xs text-slate-400">
+        <div className="mt-4 rounded-xl bg-white/5 p-4 text-xs text-slate-400 lg:mt-0">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="font-medium text-slate-200">
               {getUsername() ? `Hola, ${getUsername()}` : "Banquetes Sincronía"}
@@ -435,7 +476,7 @@ export default function Dashboard({ onCerrarSesion }) {
       </aside>
 
       {/* Main */}
-      <main className="flex-1 px-6 py-8 lg:px-10">
+      <main className="flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
         {(activeNav === "dashboard" || activeNav === "agenda") && (
           <VistaResumen kpis={kpis} eventosOrdenados={eventosOrdenados} />
         )}
